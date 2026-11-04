@@ -1,0 +1,44 @@
+{
+  "expo": {
+    "name": "Readeez",
+    "slug": "readeez",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "automatic",
+    "scheme": "readeez",
+    "android": {
+      "package": "com.haymondtechnologies.readeez",
+      "allowBackup": false,
+      "versionCode": 10000,
+      "adaptiveIcon": {
+        "backgroundColor": "#9A5B13",
+        "foregroundImage": "./assets/android-icon-foreground.png",
+        "monochromeImage": "./assets/android-icon-monochrome.png"
+      }
+    },
+    "web": {
+      "favicon": "./assets/favicon.png"
+    },
+    "plugins": [
+      "@react-native-community/datetimepicker",
+      "expo-font",
+      "expo-secure-store",
+      "expo-sharing",
+      "expo-status-bar",
+      [
+        "expo-splash-screen",
+        {
+          "image": "./assets/splash-icon.png",
+          "imageWidth": 160,
+          "resizeMode": "contain",
+          "backgroundColor": "#F8F4EC",
+          "dark": {
+            "image": "./assets/splash-icon.png",
+            "backgroundColor": "#1B1815"
+          }
+        }
+      ]
+    ]
+  }
+}

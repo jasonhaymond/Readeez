@@ -1,0 +1,64 @@
+# docker-compose.yml
+# Runs the Readeez API and its own Postgres. Server-specific values (the port and bind
+# address) come from server/.env, which Docker Compose reads automatically, so this tracked
+# file never needs a hand edit on a server.
+
+# Compose would otherwise name this project after its folder, "server". Any other app on the
+# same host with a folder of that name would then share containers with this one, and each
+# would replace the other's on start.
+name: readeez
+
+# Docker's default logging keeps logs forever. This caps them at about 30 MB per service.
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: '10m'
+    max-file: '3'
+
+services:
+  api:
+    build: .
+    restart: unless-stopped
+    # Only the settings the API uses, listed one by one, rather than all of .env. The backup
+    # passphrase and the backup Nextcloud password are used only by scripts on the host, so someone
+    # who broke into this container still couldn't reach or open the backups.
+    environment:
+      # Built here, because the database's address is only meaningful inside Compose.
+      DATABASE_URL: postgres://readeez:${POSTGRES_PASSWORD}@postgres:5432/readeez
+      PORT: '3000'
+      NODE_ENV: production
+      SECRETS_KEY: ${SECRETS_KEY}
+      TRUST_PROXY: ${TRUST_PROXY:-0}
+      CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-}
+      NEXTCLOUD_ALLOWED_PRIVATE_HOSTS: ${NEXTCLOUD_ALLOWED_PRIVATE_HOSTS:-}
+      UPDATE_CHECK_REPO: ${UPDATE_CHECK_REPO:-}
+    logging: *default-logging
+    ports:
+      # Localhost by default, so only a reverse proxy on this machine can reach the API.
+      # READEEZ_BIND is set to a private address only when the proxy is on another host.
+      - '${READEEZ_BIND:-127.0.0.1}:${READEEZ_PORT:-3020}:3000'
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  postgres:
+    image: postgres:18-alpine
+    restart: unless-stopped
+    logging: *default-logging
+    environment:
+      POSTGRES_DB: readeez
+      POSTGRES_USER: readeez
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      # Postgres 18 images keep their data in a version-named folder under this path.
+      - readeez_pg_data:/var/lib/postgresql
+    # No "ports" entry: the database can't be reached from outside Docker at all. The
+    # healthcheck makes the API wait until Postgres really accepts connections.
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U readeez -d readeez']
+      interval: 2s
+      timeout: 5s
+      retries: 30
+
+volumes:
+  readeez_pg_data:

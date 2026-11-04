@@ -1,0 +1,4 @@
+# .gitattributes
+# Shell scripts must always have Linux line endings, even when committed from Windows: a
+# Windows line ending on the first line makes Linux fail with "bad interpreter".
+*.sh text eol=lf

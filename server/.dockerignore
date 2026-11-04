@@ -1,0 +1,10 @@
+# .dockerignore
+# Keeps secrets, backups and test code out of the image.
+.env
+.env.*
+!.env.example
+backups/
+node_modules/
+test/
+docker-compose*.yml
+*.sh

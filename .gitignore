@@ -1,0 +1,52 @@
+# .gitignore
+# Files git must never track. This repo is public, so anything holding a secret, a
+# server's address, or a description of an unfixed weakness has to stay out of it.
+
+# Installed packages (rebuilt from the lockfiles)
+node_modules/
+
+# Expo's build output and caches
+.expo/
+dist/
+web-build/
+expo-env.d.ts
+
+# Generated native folders (Expo's prebuild step recreates them on the build server)
+/ios
+/android
+.kotlin/
+
+# APKs downloaded by scripts/build-android.mjs
+dist-android/
+
+# Local settings: these hold real secrets and server addresses
+.env
+.env*.local
+server/.env
+server/docker-compose.override.yml
+
+# Signing keys, which live only on the build server
+*.jks
+*.p8
+*.p12
+*.key
+*.pem
+*.mobileprovision
+
+# Database backups, which hold everyone's books and settings
+server/backups/
+
+# Written by the test suite while it runs
+server/test/.env.test.json
+
+# Private names the sanitize check looks for. Listing them in the repo would publish them.
+.security-private-patterns
+
+# Security reports describe unfixed weaknesses, so they're never committed
+security-reports/
+
+# Logs and system clutter
+npm-debug.*
+*.log
+.DS_Store
+.metro-health-check*
