@@ -5,7 +5,7 @@
 import React, { useState } from 'react';
 import { Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 import DateTimePicker from '@react-native-community/datetimepicker';
-import { Ionicons } from '@expo/vector-icons';
+import Ionicons from '@expo/vector-icons/Ionicons';
 import { Field } from './ui';
 import { useTheme } from '../contexts/ThemeContext';
 import { formatDate, localDate } from '../lib/bookLogic';

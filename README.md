@@ -103,6 +103,13 @@ recorded in the version's annotated git tag, and `server/update.sh` refuses any 
 The sanitize check reads private names from a gitignored `.security-private-patterns` file, one
 regular expression per line. Without that file, the check reports NOT RUN.
 
+## APK size
+
+Release APKs stay small through `expo-build-properties` in `app.json`: 64-bit ARM only, which covers essentially
+every phone from the last decade, with R8 code shrinking and resource shrinking. Import icons from their own path
+(`@expo/vector-icons/Ionicons`), because the package's main entry can pull every icon font into the APK. To
+test on an x86_64 emulator, build with `-PreactNativeArchitectures=x86_64`, which overrides the setting.
+
 ## Dependency pins
 
 `npm outdated` lists these as behind, on purpose. Expo SDK 58 pins them, so they're installed with

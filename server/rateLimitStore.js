@@ -5,6 +5,7 @@
 // calls them once per request.
 
 const pool = require('./db');
+const log = require('./logger')('rate-limit');
 
 /**
  * One limiter's counts.
@@ -44,10 +45,12 @@ class PostgresRateStore {
 
   /**
    * Takes one back. The library calls this after a successful sign-in, so normal use doesn't use up attempts.
-   * In: the key.
+   * In: the key. A failure is logged and goes no further: the library doesn't watch for one here, so an
+   * uncaught database error would stop the whole server, and the only cost of missing this is one extra count.
    */
   async decrement(key) {
-    await pool.query('update rate_limits set hits = greatest(hits - 1, 0) where key = $1', [`${this.prefix}${key}`]);
+    await pool.query('update rate_limits set hits = greatest(hits - 1, 0) where key = $1', [`${this.prefix}${key}`])
+      .catch((err) => log.warn(`could not take back a count: ${err.message}`));
   }
 
   /** Forgets a key's count entirely. In: the key. */

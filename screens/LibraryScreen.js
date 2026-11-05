@@ -6,7 +6,7 @@ import React, { useMemo, useState } from 'react';
 import { FlatList, Modal, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { Ionicons } from '@expo/vector-icons';
+import Ionicons from '@expo/vector-icons/Ionicons';
 import Screen from '../components/Screen';
 import BookRow from '../components/BookRow';
 import { Button, Chip, SectionTitle, Stars } from '../components/ui';

@@ -5,7 +5,7 @@
 const request = require('supertest');
 const pool = require('../db');
 const { createApp } = require('../app');
-const { pruneRateLimits } = require('../rateLimitStore');
+const { PostgresRateStore, pruneRateLimits } = require('../rateLimitStore');
 const { PASSWORD, resetDb, createUser, makeBook, bearer } = require('./helpers');
 
 beforeEach(resetDb);
@@ -44,6 +44,14 @@ describe('sign-in limits', () => {
     }
     const { rows } = await pool.query('select hits from rate_limits');
     expect(rows[0].hits).toBe(0);
+  });
+
+  // Availability: a database failure while taking back a count must not reach the caller, where it would be
+  // an uncaught error that stops the server.
+  test('a failed take-back does not throw', async () => {
+    const spy = vi.spyOn(pool, 'query').mockRejectedValueOnce(new Error('database is down'));
+    await expect(new PostgresRateStore('test:').decrement('someone')).resolves.toBeUndefined();
+    spy.mockRestore();
   });
 
   // Undercounting: simultaneous attempts must all be counted, or a burst could beat the limit.

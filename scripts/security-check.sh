@@ -238,9 +238,13 @@ fi
 # Pulls the totals out of the test runner's output, e.g. "228 passed (228)". In: the output file.
 test_summary() { grep -E '^\s*Tests ' "$1" | sed -E 's/^\s*Tests +//'; }
 
+# Says whether any test was skipped. A skipped security test proves nothing, so it mustn't count as a pass.
+# In: the output file. Out: success if something was skipped.
+skipped_tests() { grep -qE '^\s*Tests .*(skipped|todo)' "$1"; }
+
 # 4. Project tests: the server's suite is the security tests, run against real Postgres.
 if [ "$DOCKER_OK" = 1 ]; then
-  if (cd server && NO_COLOR=1 npx vitest run --reporter=verbose) > "$TMP/server-tests.txt" 2>&1; then
+  if (cd server && NO_COLOR=1 npx vitest run --reporter=verbose) > "$TMP/server-tests.txt" 2>&1 && ! skipped_tests "$TMP/server-tests.txt"; then
     record "Server tests (real Postgres)" PASS "$(test_summary "$TMP/server-tests.txt")"
   else
     record "Server tests (real Postgres)" FAIL "$(test_summary "$TMP/server-tests.txt")"
@@ -250,7 +254,7 @@ if [ "$DOCKER_OK" = 1 ]; then
 else
   record "Server tests (real Postgres)" "NOT RUN" "Docker isn't available"
 fi
-if NO_COLOR=1 npx vitest run > "$TMP/app-tests.txt" 2>&1; then
+if NO_COLOR=1 npx vitest run > "$TMP/app-tests.txt" 2>&1 && ! skipped_tests "$TMP/app-tests.txt"; then
   record "App logic tests" PASS "$(test_summary "$TMP/app-tests.txt")"
 else
   record "App logic tests" FAIL "$(test_summary "$TMP/app-tests.txt")"

@@ -8,7 +8,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
-import { Ionicons } from '@expo/vector-icons';
+import Ionicons from '@expo/vector-icons/Ionicons';
 import Screen from '../components/Screen';
 import { Button, Card, Dialog, Field, Message, SectionTitle } from '../components/ui';
 import { useTheme } from '../contexts/ThemeContext';

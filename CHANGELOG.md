@@ -6,7 +6,7 @@ All notable changes to Readeez are recorded here. The format follows
 
 [Back to the README](README.md)
 
-## [1.0.3] - 2026-11-04
+## [1.0.3] - 2026-11-05
 
 The first release to be deployed. Versions 1.0.0 to 1.0.2 were pushed, but never tagged or deployed.
 
@@ -21,11 +21,15 @@ The first release to be deployed. Versions 1.0.0 to 1.0.2 were pushed, but never
 - A sign-in overlapping a password change no longer gets a session from the old password.
 - A Nextcloud connection request held open across a password change can no longer restore the link. Requests to
   Nextcloud also have an overall time limit.
-- Books, notes and the signed-in person's details are now encrypted on the phone, with a key in Android's Keystore.
+- Books, notes and the signed-in person's details are now encrypted on the phone, with a key protected by Android's Keystore.
 - Rate-limit counts now live in the database, so a restart no longer gives anyone fresh sign-in attempts. Signed-in
   sync requests now have a limit too, of 600 per account per 15 minutes.
 - Cleared every `npm audit` finding: forced fixed versions of `glob` and `minimatch`, and moved the tests from Jest to
   Vitest, because Jest depends on `deepmerge`, which has no fixed release.
+
+### Changed
+
+- A smaller APK: 64-bit ARM only with code and resource shrinking, and only the one icon font the app uses.
 
 ### Schema
 
