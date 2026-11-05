@@ -41,6 +41,11 @@ export function AuthProvider({ children }) {
       if (token && saved) {
         api.setAuthToken(token);
         setUser(JSON.parse(saved));
+        // Picks up changes made elsewhere, such as a reset notice. Offline, the saved copy stands.
+        api.request('GET', '/api/auth/me').then(async ({ user: fresh }) => {
+          await AsyncStorage.setItem(USER_KEY, JSON.stringify(fresh));
+          setUser(fresh);
+        }).catch(() => {});
       }
       setLoading(false);
     })().catch(() => setLoading(false));

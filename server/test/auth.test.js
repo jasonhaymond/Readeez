@@ -6,6 +6,7 @@
 const request = require('supertest');
 const pool = require('../db');
 const auth = require('../auth');
+const accounts = require('../accounts');
 const { createApp } = require('../app');
 const { PASSWORD, resetDb, createUser, bearer } = require('./helpers');
 
@@ -204,6 +205,110 @@ describe('invite codes', () => {
     }
     const res = await request(app).post('/api/auth/redeem').send({ ...details, code: 'WRONG-X' });
     expect(res.status).toBe(429);
+  });
+});
+
+describe('the admin reset history', () => {
+  const useCode = async (user, password) => {
+    const code = await auth.createResetCode(user.id, null);
+    await request(app).post('/api/auth/reset').send({ code, password });
+  };
+  const signIn = (password) => request(app).post('/api/auth/login').send({ email: 'sam@example.com', password });
+
+  // Privacy: an admin can sign in as someone by redeeming a reset code, so the person has to find out.
+  test('using a reset code is shown at the next sign-in', async () => {
+    const user = await createUser({ email: 'sam@example.com' });
+    expect((await signIn(PASSWORD)).body.user.adminResets).toEqual([]);
+    await useCode(user, 'a-brand-new-password');
+    const login = await signIn('a-brand-new-password');
+    expect(login.body.user.adminResets).toHaveLength(1);
+    const me = await request(app).get('/api/auth/me').set('Authorization', bearer(login.body.token));
+    expect(me.body.user.adminResets).toEqual(login.body.user.adminResets);
+  });
+
+  // Covering tracks: an admin resets at 2am to read someone's notes, then hands over a new code in the
+  // morning "to fix it". The person must see both, not just the innocent-looking second one.
+  test('a later reset does not hide an earlier one', async () => {
+    const user = await createUser({ email: 'sam@example.com' });
+    await useCode(user, 'first-new-password');
+    await useCode(user, 'second-new-password');
+    const { adminResets } = (await signIn('second-new-password')).body.user;
+    expect(adminResets).toHaveLength(2);
+    expect(adminResets[0] >= adminResets[1]).toBe(true);
+  });
+
+  // Tampering: someone signed in as the person can't erase the history by changing the password.
+  test('changing the password afterward does not clear it', async () => {
+    const user = await createUser({ email: 'sam@example.com' });
+    await useCode(user, 'a-brand-new-password');
+    const login = await signIn('a-brand-new-password');
+    await request(app).post('/api/auth/password').set('Authorization', bearer(login.body.token))
+      .send({ currentPassword: 'a-brand-new-password', newPassword: 'another-new-password' });
+    const me = await request(app).get('/api/auth/me').set('Authorization', bearer(login.body.token));
+    expect(me.body.user.adminResets).toHaveLength(1);
+  });
+
+  // Tampering: issuing a new code cancels only unused ones, so it can't wipe the used ones either.
+  test('issuing another code does not clear it', async () => {
+    const user = await createUser({ email: 'sam@example.com' });
+    await useCode(user, 'a-brand-new-password');
+    await auth.createResetCode(user.id, null);
+    expect((await signIn('a-brand-new-password')).body.user.adminResets).toHaveLength(1);
+  });
+
+  // Covering tracks: removing the admin who issued the code leaves the record in place.
+  test('deleting the admin who issued the code does not clear it', async () => {
+    await createUser({ role: 'admin' });
+    const issuer = await createUser({ role: 'admin' });
+    const user = await createUser({ email: 'sam@example.com' });
+    const code = await auth.createResetCode(user.id, issuer.id);
+    await request(app).post('/api/auth/reset').send({ code, password: 'a-brand-new-password' });
+    await accounts.deleteAccount(issuer.id);
+    expect((await signIn('a-brand-new-password')).body.user.adminResets).toHaveLength(1);
+  });
+
+  // Unused codes aren't a reset, and a code issued but never redeemed raises no alarm.
+  test('an unused code and your own password change raise nothing', async () => {
+    const user = await createUser({ email: 'sam@example.com' });
+    await auth.createResetCode(user.id, null);
+    await request(app).post('/api/auth/password').set('Authorization', bearer(user.token))
+      .send({ currentPassword: PASSWORD, newPassword: 'a-brand-new-password' });
+    const me = await request(app).get('/api/auth/me').set('Authorization', bearer(user.token));
+    expect(me.body.user.adminResets).toEqual([]);
+  });
+
+  // Privacy: this history is only ever given to the person it's about.
+  test('one person cannot see another person\'s history', async () => {
+    const user = await createUser({ email: 'sam@example.com' });
+    const other = await createUser();
+    await useCode(user, 'a-brand-new-password');
+    const me = await request(app).get('/api/auth/me').set('Authorization', bearer(other.token));
+    expect(me.body.user.adminResets).toEqual([]);
+  });
+});
+
+describe('control characters', () => {
+  const details = { email: 'new@example.com', displayName: 'New Person', password: PASSWORD };
+
+  // Terminal spoofing: an escape sequence in a name could rewrite an admin's terminal panel.
+  test('they are removed from names', async () => {
+    const code = await auth.createInvite('member', null);
+    const res = await request(app).post('/api/auth/redeem').send({ ...details, code, displayName: '\u001b[2JSam\u0007\u009b' });
+    expect(res.body.user.displayName).toBe('[2JSam');
+  });
+
+  // A name made only of them is no name at all.
+  test('a name of only control characters is refused', async () => {
+    const code = await auth.createInvite('member', null);
+    const res = await request(app).post('/api/auth/redeem').send({ ...details, code, displayName: '\u001b\u0007' });
+    expect(res.status).toBe(400);
+  });
+
+  // The panel also shows emails, so the same attack through an email is refused.
+  test('an email containing them is refused', async () => {
+    const code = await auth.createInvite('member', null);
+    const res = await request(app).post('/api/auth/redeem').send({ ...details, code, email: 'x\u001b[2J@example.com' });
+    expect(res.status).toBe(400);
   });
 });
 

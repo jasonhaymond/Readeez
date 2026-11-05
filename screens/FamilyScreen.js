@@ -103,7 +103,7 @@ export default function FamilyScreen() {
         )}
       />
 
-      <Dialog visible={inviteOpen} title="Invite someone" message="Admins can manage accounts and see server status. They can't read anyone's books." confirmLabel="Create code" onConfirm={createInvite} onCancel={() => setInviteOpen(false)}>
+      <Dialog visible={inviteOpen} title="Invite someone" message="Admins can manage accounts and see server status. They don't see anyone's books in these screens, but a reset code could sign them in as that person, who would then see when it was used." confirmLabel="Create code" onConfirm={createInvite} onCancel={() => setInviteOpen(false)}>
         <Segmented options={ROLES} value={role} onChange={setRole} />
       </Dialog>
 

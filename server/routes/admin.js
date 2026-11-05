@@ -1,8 +1,8 @@
 // routes/admin.js
 // Admin-only routes under /api/admin: family accounts, invite and reset codes, server status, the
 // log viewer, and requesting a backup or update. Used by Settings > Family and Settings > Server in
-// the app. Book contents are never returned here, so being an admin doesn't let someone read another
-// person's books or notes.
+// the app. Book contents are never returned here. An admin could still sign in as someone by redeeming
+// a reset code for them, so using a reset code is recorded and shown to that person at next sign-in.
 
 const express = require('express');
 const pool = require('../db');
@@ -78,7 +78,8 @@ function createAdminRouter() {
   /**
    * POST /api/admin/users/:id/reset-code — makes a password-reset code for someone who's locked out.
    * Out: { code, expiresInHours }, shown only once.
-   * Side effects: cancels that person's earlier unused reset codes.
+   * Side effects: cancels that person's earlier unused reset codes. Whoever redeems the code can sign in
+   * as that person, which is why redeeming it leaves a notice they'll see (see routes/auth.js).
    */
   router.post('/users/:id/reset-code', async (req, res) => {
     // Checks the id's format first, so a bad one gets a 400 and not a database error.

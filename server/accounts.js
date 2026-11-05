@@ -25,6 +25,15 @@ async function listAccounts() {
 }
 
 /**
+ * Cancels the unused codes someone created. Otherwise an admin expecting to be removed could keep an
+ * admin invite code, and use it to get back in afterward.
+ * In: a database client (so it joins the caller's transaction) and the account's id.
+ */
+function cancelCodesFrom(client, id) {
+  return client.query('delete from access_codes where created_by = $1 and used_at is null', [id]);
+}
+
+/**
  * Runs a change that could remove an admin, refusing it if it would remove the last working one.
  * In: the account's id, and a function given a database client to make the change with.
  * Side effects: whatever the change does. The admin rows stay locked until the transaction ends,
@@ -53,8 +62,8 @@ async function changeGuardingLastAdmin(id, change) {
 
 /**
  * Disables or re-enables an account.
- * In: the id and true/false. Side effects: disabling signs that person out everywhere at once.
- * Their books are kept.
+ * In: the id and true/false. Side effects: disabling signs that person out everywhere at once, and
+ * cancels their unused codes. Their books are kept. Re-enabling doesn't bring the codes back.
  */
 async function setDisabled(id, disabled) {
   if (!disabled) {
@@ -62,13 +71,17 @@ async function setDisabled(id, disabled) {
     if (!rowCount) throw new AccountError('No such account.');
     return;
   }
-  await changeGuardingLastAdmin(id, (client) => client.query('update users set disabled_at = now() where id = $1', [id]));
+  await changeGuardingLastAdmin(id, async (client) => {
+    await cancelCodesFrom(client, id);
+    await client.query('update users set disabled_at = now() where id = $1', [id]);
+  });
   await deleteSessions(id);
 }
 
 /**
  * Makes an account an admin or a regular member.
- * In: the id and 'admin' or 'member'. Side effects: changes the role, effective immediately.
+ * In: the id and 'admin' or 'member'. Side effects: changes the role, effective immediately. Making
+ * someone a member also cancels their unused codes.
  */
 async function setRole(id, role) {
   if (role !== 'admin' && role !== 'member') throw new AccountError('The role must be admin or member.');
@@ -77,16 +90,23 @@ async function setRole(id, role) {
     if (!rowCount) throw new AccountError('No such account.');
     return;
   }
-  await changeGuardingLastAdmin(id, (client) => client.query(`update users set role = 'member' where id = $1`, [id]));
+  await changeGuardingLastAdmin(id, async (client) => {
+    await cancelCodesFrom(client, id);
+    await client.query(`update users set role = 'member' where id = $1`, [id]);
+  });
 }
 
 /**
  * Permanently deletes an account and, by database cascade, its books, sessions and Nextcloud
- * connection. Backups taken earlier still hold them until they age out.
+ * connection. Its unused codes are cancelled first: the cascade would only blank their creator and
+ * leave them working. Backups taken earlier still hold the data until they age out.
  * In: the id. Side effects: can't be undone, except by restoring a backup.
  */
 async function deleteAccount(id) {
-  await changeGuardingLastAdmin(id, (client) => client.query('delete from users where id = $1', [id]));
+  await changeGuardingLastAdmin(id, async (client) => {
+    await cancelCodesFrom(client, id);
+    await client.query('delete from users where id = $1', [id]);
+  });
 }
 
 module.exports = { AccountError, listAccounts, setDisabled, setRole, deleteAccount };

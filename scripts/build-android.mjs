@@ -4,16 +4,19 @@
 // dist-android/. The build server clones from GitHub, so it builds what's been pushed. Run this
 // where the build credentials live: they stay on that machine and aren't copied elsewhere.
 //
-//   npm run build:android                  # build the commit HEAD points at, release, arm64
-//   npm run build:android -- --ref v1.2.0  # build a specific tag, branch or commit
+//   npm run build:android                  # release build of the version tag at HEAD, arm64
+//   npm run build:android -- --ref v1.2.0  # release build of that version tag
 //   npm run build:android -- --abi x86_64  # another processor type (x86_64 = emulators)
 //   npm run build:android -- --abi all     # every processor type
-//   npm run build:android -- --debug       # a debug build
+//   npm run build:android -- --debug       # a debug build, of HEAD or any --ref
 //   npm run build:android -- --status <id> # re-check or download an earlier build
 //
 // Settings come from the gitignored .env (see .env.example). A release build is signed by
 // the key stored on the build server, referred to only by name: Android only installs an update
 // signed with the same key as the installed app, so that key must never change.
+//
+// A release build must be an approved version: an annotated tag with a recorded security review (the same
+// check server/update.sh makes), because a release-signed APK is what family members install.
 //
 // Before submitting, it refuses a commit that wouldn't match GitHub, a versionCode that doesn't
 // follow the version, and Expo native packages from another SDK (which build fine, then crash).
@@ -153,7 +156,23 @@ async function main() {
 
   const refIndex = args.indexOf('--ref');
   let ref = refIndex !== -1 ? args[refIndex + 1] : null;
-  if (!ref) {
+  if (variant === 'release') {
+    // Fetches the tags first, then requires an exact version tag. An exact shape such as v1.2.3 is also
+    // what makes it safe to place on the command line below.
+    git('fetch --quiet --tags origin');
+    if (!ref) {
+      try { ref = git('describe --tags --exact-match HEAD'); } catch { fail('A release build needs a version tag: tag this commit, or use --ref vX.Y.Z or --debug.'); }
+    }
+    if (!/^v\d+\.\d+\.\d+$/.test(ref)) fail(`A release build must be a version tag such as v1.2.3, not "${ref}". Use --debug for anything else.`);
+    try {
+      execSync(`bash scripts/verify-release-tag.sh ${ref}`, { cwd: ROOT, stdio: 'inherit' });
+    } catch {
+      fail(`${ref} has no recorded security approval, so it can't be built as a release.`);
+    }
+    // Builds the exact commit that tag points to. A branch given the same name as the tag then can't
+    // change what gets built.
+    ref = git(`rev-list -n 1 refs/tags/${ref}`);
+  } else if (!ref) {
     // The APK has to match a real, pushed commit, not whatever's in this folder.
     if (git('status --porcelain')) fail('There are uncommitted changes. The build server builds from GitHub, not this folder.');
     git('fetch --quiet origin');

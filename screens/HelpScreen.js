@@ -16,7 +16,7 @@ const TOPICS = [
   ['Rating', 'Tap a star to rate from 1 to 5. Tap the same star again to clear the rating. Ratings are optional.'],
   ['Finding books', 'The magnifying glass at the top of any screen searches titles, authors, categories and your notes. In your library, use Filter to narrow by rating, category or author.'],
   ['Using it offline', 'Everything works without a connection. Your changes are saved on your phone and sent to the server when you\'re back online. If a book was changed on two devices, the most recent change is kept.'],
-  ['Who can see my books', 'Only you. Your books and notes are private, even from your family\'s admin, who can see only how many books you have.'],
+  ['Who can see my books', 'Only you in the app. Your family\'s admin sees how many books you have, not what they are. An admin could still sign in as you by using a password reset code on your account. You\'d be signed out, and the next time you sign in you\'d see every date a reset code was used. The dates stay in Settings. Anyone who runs the server can also read its database.'],
   ['Saving a copy', 'In Settings, use Share CSV or Share JSON to send your library anywhere, or connect your Nextcloud for a copy every day.'],
   ['Bringing a copy back', 'In Settings, tap Import a JSON export and pick the file. You\'ll see what it would change first. Books you\'ve edited more recently are left alone, and deleted books come back.'],
   ['Changing the look', 'In Settings, choose Light, Dark or System, and pick a colour or gradient theme. This only affects this phone.'],
@@ -25,8 +25,8 @@ const TOPICS = [
 ];
 
 const ADMIN_TOPICS = [
-  ['Adding family members', 'In Settings, open Family accounts and tap Invite someone. Give them the code. It\'s shown once, works once, and lasts 7 days.'],
-  ['Someone is locked out', 'In Family accounts, tap Reset code next to their name and give them the code. It\'s shown once and lasts 24 hours.'],
+  ['Adding family members', 'In Settings, open Family accounts and tap Invite someone. Give them the code. It\'s shown once, works once, and lasts 7 days. If someone is disabled or removed as an admin, their unused codes stop working.'],
+  ['Someone is locked out', 'In Family accounts, tap Reset code next to their name and give them the code. It\'s shown once and lasts 24 hours. They\'ll see the date each reset code was used, so only use one when they ask.'],
   ['Removing someone', 'Disable signs them out everywhere and blocks sign-in. Their books are kept, and you can enable the account again later.'],
   ['Updates and backups', 'Settings, then Server, shows your version and the last backup, with Back up now and Update buttons. Restores are done in the terminal admin panel: run server/admin.sh on the server.'],
   ['Server logs', 'Settings, then Server, then View logs shows recent server activity, which you can filter down to warnings and errors. Logs never include book contents or passwords.'],

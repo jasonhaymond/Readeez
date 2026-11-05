@@ -196,7 +196,23 @@ async function redeemCode(client, code, kind) {
   return rows[0] || null;
 }
 
+/**
+ * Lists when reset codes were used on an account, newest first. Reset codes come from an admin, who could
+ * redeem one to sign in as this person, so the person is shown this history. It's read from the used codes
+ * themselves, which nothing in the app deletes (only unused codes are ever cancelled), so a later reset can't
+ * hide an earlier one, and someone signed in as the person can't clear it.
+ * In: the account's id. Out: an array of ISO times, at most the newest 20.
+ */
+async function resetHistory(userId) {
+  const { rows } = await pool.query(
+    `select used_at from access_codes where kind = 'reset' and user_id = $1 and used_at is not null order by used_at desc limit 20`,
+    [userId]
+  );
+  return rows.map((row) => row.used_at.toISOString());
+}
+
 module.exports = {
+  resetHistory,
   passwordProblem,
   hashPassword,
   checkPassword,

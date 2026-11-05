@@ -174,6 +174,8 @@ Remaining steps need root, so run them yourself:
    }
 
 2. Firewall. Allow only SSH, 80 and 443 from the internet. Never open port ${PORT:-3020}.
+   If the proxy is on another machine, Docker-published ports bypass ufw, so this port also needs a
+   DOCKER-USER rule. See "Connect the reverse proxy and firewall" in docs/admin-guide.md.
 
 3. Run a test backup now: server/backup.sh
 

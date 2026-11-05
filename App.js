@@ -22,6 +22,7 @@ import ServerScreen from './screens/ServerScreen';
 import LogsScreen from './screens/LogsScreen';
 import HelpScreen from './screens/HelpScreen';
 import SignInScreen from './screens/SignInScreen';
+import ResetNotice from './components/ResetNotice';
 
 const Stack = createNativeStackNavigator();
 
@@ -46,6 +47,7 @@ function MainScreens() {
         <Stack.Screen name="Logs" component={LogsScreen} />
         <Stack.Screen name="Help" component={HelpScreen} />
       </Stack.Navigator>
+      <ResetNotice />
     </BooksProvider>
   );
 }

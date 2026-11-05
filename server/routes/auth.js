@@ -18,6 +18,9 @@ const BAD_CODE = 'That code isn\'t valid. It may have expired or already been us
 const EMAIL = /^[^\s@]+@[^\s@]+$/;
 const MAX_EMAIL = 254;
 const MAX_NAME = 80;
+// Control characters: invisible codes such as the terminal escape character. Admins see names and
+// emails in the terminal admin panel, where these could rewrite what's on their screen.
+const CONTROL_CHARS = /[\u0000-\u001f\u007f-\u009f]/g;
 
 /**
  * Builds the router. A fresh one per app instance means rate-limit counters aren't
@@ -46,8 +49,9 @@ function createAuthRouter() {
   router.post('/redeem', limiter, async (req, res) => {
     const { code, email, displayName, password } = req.body || {};
     const cleanEmail = String(email || '').trim().toLowerCase();
-    const cleanName = String(displayName || '').trim();
-    if (cleanEmail.length > MAX_EMAIL || !EMAIL.test(cleanEmail)) return res.status(400).json({ error: 'Enter a valid email address.' });
+    const cleanName = String(displayName || '').replace(CONTROL_CHARS, '').trim();
+    // An email with a control character in it is refused rather than silently changed.
+    if (cleanEmail.length > MAX_EMAIL || !EMAIL.test(cleanEmail) || cleanEmail.search(CONTROL_CHARS) !== -1) return res.status(400).json({ error: 'Enter a valid email address.' });
     if (!cleanName || cleanName.length > MAX_NAME) return res.status(400).json({ error: 'Enter your name.' });
     const problem = auth.passwordProblem(password);
     if (problem) return res.status(400).json({ error: problem });
@@ -106,13 +110,14 @@ function createAuthRouter() {
     if (!(await auth.checkPassword(password, user && user.password_hash))) {
       return res.status(401).json({ error: BAD_LOGIN });
     }
-    return res.json({ token: await auth.createSession(user.id), user: publicUser(user) });
+    return res.json({ token: await auth.createSession(user.id), user: publicUser(user, await auth.resetHistory(user.id)) });
   });
 
   /**
    * POST /api/auth/reset — public. Sets a new password using an admin's reset code.
    * In: { code, password }. Out: { ok: true }.
-   * Side effects: uses up the code, changes the password, signs out every device.
+   * Side effects: uses up the code, which stays on record as used, so the person is shown the time at their
+   * next sign-in. Also changes the password and signs out every device.
    */
   router.post('/reset', limiter, async (req, res) => {
     const { code, password } = req.body || {};
@@ -146,7 +151,9 @@ function createAuthRouter() {
   /**
    * GET /api/auth/me — signed-in users. Out: { user }, the caller's own details.
    */
-  router.get('/me', auth.requireAuth, (req, res) => res.json({ user: publicUser(req.user) }));
+  router.get('/me', auth.requireAuth, async (req, res) => {
+    res.json({ user: publicUser(req.user, await auth.resetHistory(req.user.id)) });
+  });
 
   /**
    * POST /api/auth/logout — signed-in users. Ends this device's session on the
@@ -182,10 +189,17 @@ function createAuthRouter() {
 /**
  * Picks the fields a client may see. Listing them explicitly keeps the password
  * hash out of every response, even if a query selects it.
- * In: a user row. Out: { id, email, displayName, role }.
+ * In: a user row, and when reset codes were used on this account (see auth.resetHistory).
+ * Out: { id, email, displayName, role, adminResets }.
  */
-function publicUser(user) {
-  return { id: user.id, email: user.email, displayName: user.display_name, role: user.role };
+function publicUser(user, adminResets = []) {
+  return {
+    id: user.id,
+    email: user.email,
+    displayName: user.display_name,
+    role: user.role,
+    adminResets,
+  };
 }
 
 module.exports = { createAuthRouter, publicUser };

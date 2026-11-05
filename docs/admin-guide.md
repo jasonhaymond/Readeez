@@ -223,8 +223,62 @@ sudo ufw allow 443
 sudo ufw enable
 ```
 
-Never open the API port or 5432 to the internet. If Caddy is on another machine, allow the API port
-from that machine only.
+Never open the API port or 5432 to the internet.
+
+**If Caddy is on another machine, `ufw` isn't enough, because Docker-published ports bypass it.** Traffic to a
+container is routed before `ufw`'s rules apply, so a `deny` rule alone leaves the port open to your whole
+network. Add a rule to Docker's own `DOCKER-USER` chain too. Here, `PROXY` is the proxy's address and `PORT` is
+your API port. `--ctorigdstport` matches the published port as it arrived, since by this point Docker has
+already rewritten it to the container's.
+
+```bash
+sudo ufw allow from PROXY to any port PORT proto tcp
+sudo ufw deny PORT/tcp
+sudo iptables -I DOCKER-USER ! -s PROXY/32 -p tcp -m conntrack --ctstate NEW --ctorigdstport PORT -j DROP
+```
+
+That `iptables` rule is lost on reboot. To make it permanent, create `/usr/local/sbin/readeez-docker-user-fw.sh`,
+with mode 755:
+
+```bash
+#!/bin/sh
+# Keeps the Readeez API port reachable only from the reverse proxy. -C checks whether the rule already exists.
+iptables -C DOCKER-USER ! -s PROXY/32 -p tcp -m conntrack --ctstate NEW --ctorigdstport PORT -j DROP 2>/dev/null \
+  || iptables -I DOCKER-USER ! -s PROXY/32 -p tcp -m conntrack --ctstate NEW --ctorigdstport PORT -j DROP
+```
+
+Replace `PROXY` and `PORT` in that script too. Then create `/etc/systemd/system/readeez-docker-user-fw.service`:
+
+```ini
+[Unit]
+Description=Ensure Readeez DOCKER-USER firewall rule (API port, proxy only)
+After=docker.service
+Requires=docker.service
+PartOf=docker.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/readeez-docker-user-fw.sh
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target
+```
+
+And enable it:
+
+```bash
+sudo systemctl daemon-reload
+sudo systemctl enable --now readeez-docker-user-fw.service
+```
+
+**Check it** from a machine that isn't the proxy, with the server's address and your port:
+
+```bash
+curl -m 5 http://SERVER:PORT/api/health
+```
+
+Success: it times out. From the proxy itself, the same command answers `{"status":"ok"}`.
 
 **Check the security of the live server** from a machine with this repo:
 
@@ -248,9 +302,16 @@ Success: `RESULT: PASS`.
 If you're ever locked out of every admin account, make a new admin code in `server/admin.sh`: Accounts,
 then Invite someone, with the role `admin`.
 
-Admins can see each person's email and book count. Nobody's titles or notes are visible to them in
-the app. Anyone with access to the server or its backups could read the database, so treat that
-access accordingly.
+Admins can see each person's email and book count, and no titles or notes in the admin screens. Two things
+go further, so be straight with your family about them:
+
+- **A reset code signs in as that person.** Whoever redeems one can see that person's books. So redeeming one
+  signs the person out, and at next sign-in they see every date a code was used, which stay in Settings. A later
+  reset can't hide an earlier one, and nothing in the app clears the list. Only issue a code when someone asks.
+- **Anyone with access to the server or its backups can read the database.**
+
+Disabling, demoting or deleting an admin cancels the unused codes they created, so a saved code can't be used
+to get back in. Codes made in the terminal panel belong to no account, so they last until they're used or expire.
 
 ## 7. Build the Android app
 
@@ -275,8 +336,10 @@ pushed first.
 **To build a released version:**
 
 ```bash
-npm run build:android -- --ref v1.0.0
+npm run build:android -- --ref v1.0.1
 ```
+
+A release build must be an approved version tag: anything else is refused. Use `--debug` for a test build.
 
 Success: it ends with `✔ dist-android/...apk`. The build is also on the build server's dashboard.
 

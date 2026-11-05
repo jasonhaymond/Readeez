@@ -73,7 +73,9 @@ async function run([command, first, second]) {
     case 'users':
       // Prints email, name, role, active or disabled, and book count.
       for (const a of await accounts.listAccounts()) {
-        say([a.email, a.displayName.replace(/\s+/g, ' '), a.role, a.disabled ? 'disabled' : 'active', a.bookCount].join('\t'));
+        // Control characters are removed, so a stored value can't rewrite the admin's terminal screen.
+        const plain = (text) => text.replace(/[\s\u0000-\u001f\u007f-\u009f]+/g, ' ');
+        say([plain(a.email), plain(a.displayName), a.role, a.disabled ? 'disabled' : 'active', a.bookCount].join('\t'));
       }
       break;
     case 'invite': {

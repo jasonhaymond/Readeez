@@ -165,6 +165,9 @@ export default function SettingsScreen() {
         <Card>
           <Text style={[styles.name, { color: colors.text }]}>{user?.displayName}</Text>
           <Text style={[styles.body, { color: colors.muted }]}>{user?.email}</Text>
+          {user?.adminResets?.length ? (
+            <Text style={[styles.body, { color: colors.muted }]}>Reset codes used on this account: {user.adminResets.map((at) => new Date(at).toLocaleString()).join(', ')}</Text>
+          ) : null}
           <Button label="Change password" kind="secondary" onPress={() => setPasswordOpen(true)} style={styles.gap} />
           <Button label="Sign out" kind="secondary" onPress={() => setConfirmSignOut(true)} />
         </Card>

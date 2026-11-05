@@ -8,6 +8,7 @@ const { execFile } = require('child_process');
 const request = require('supertest');
 const pool = require('../db');
 const accounts = require('../accounts');
+const auth = require('../auth');
 const { createApp } = require('../app');
 const { recordAppVersion } = require('../appMeta');
 const { PASSWORD, resetDb, createUser, makeBook, bearer } = require('./helpers');
@@ -84,6 +85,55 @@ describe('keeping a working admin', () => {
   test('an unknown role is refused', async () => {
     const member = await createUser();
     await expect(accounts.setRole(member.id, 'superuser')).rejects.toThrow('must be');
+  });
+});
+
+describe('a removed admin\'s codes', () => {
+  const details = { email: 'back@example.com', displayName: 'Back Again', password: PASSWORD };
+  const redeem = (code) => request(app).post('/api/auth/redeem').send({ ...details, code });
+
+  // Persistence: an admin expecting removal keeps an admin invite code to get back in with. Each way of
+  // removing them must kill it.
+  test.each([
+    ['disabled', (id) => accounts.setDisabled(id, true)],
+    ['made a member', (id) => accounts.setRole(id, 'member')],
+    ['deleted', (id) => accounts.deleteAccount(id)],
+  ])('an invite from an admin who is %s stops working', async (name, removal) => {
+    await createUser({ role: 'admin' });
+    const leaving = await createUser({ role: 'admin' });
+    const code = await auth.createInvite('admin', leaving.id);
+    await removal(leaving.id);
+    expect((await redeem(code)).status).toBe(400);
+    expect((await pool.query(`select id from users where email = 'back@example.com'`)).rows).toEqual([]);
+  });
+
+  // Takeover: a saved reset code for another admin dies the same way.
+  test('a reset code from a removed admin stops working', async () => {
+    const staying = await createUser({ role: 'admin' });
+    const leaving = await createUser({ role: 'admin' });
+    const code = await auth.createResetCode(staying.id, leaving.id);
+    await accounts.setDisabled(leaving.id, true);
+    expect((await request(app).post('/api/auth/reset').send({ code, password: 'attacker-password-1' })).status).toBe(400);
+  });
+
+  // Re-enabling someone doesn't bring back codes cancelled when they were disabled.
+  test('re-enabling does not revive the codes', async () => {
+    await createUser({ role: 'admin' });
+    const leaving = await createUser({ role: 'admin' });
+    const code = await auth.createInvite('admin', leaving.id);
+    await accounts.setDisabled(leaving.id, true);
+    await accounts.setDisabled(leaving.id, false);
+    expect((await redeem(code)).status).toBe(400);
+  });
+
+  // Another admin's codes are untouched, and a refused removal cancels nothing.
+  test('other admins\' codes keep working', async () => {
+    const staying = await createUser({ role: 'admin' });
+    const leaving = await createUser({ role: 'admin' });
+    const code = await auth.createInvite('member', staying.id);
+    await accounts.setDisabled(leaving.id, true);
+    await expect(accounts.setDisabled(staying.id, true)).rejects.toThrow('only working admin');
+    expect((await redeem(code)).status).toBe(201);
   });
 });
 

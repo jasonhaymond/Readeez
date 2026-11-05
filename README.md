@@ -4,7 +4,7 @@ A simple book tracker for a family. Log what you've read with its authors, categ
 rating, read date and your notes. It's an Android app that works offline and syncs to your own
 server, with backups and exports to Nextcloud.
 
-**Current version: 1.0.0** · [Changelog](CHANGELOG.md)
+**Current version: 1.0.1** · [Changelog](CHANGELOG.md)
 
 ## Documentation
 
@@ -24,8 +24,9 @@ server, with backups and exports to Nextcloud.
 - **Stats:** totals, books per year, top authors and categories.
 - **Works offline:** everything is saved on the phone first and syncs when it can. If a book was
   changed on two devices, the most recent change is kept.
-- **Family accounts:** an admin invites each person. Everyone's books and notes are private, even
-  from the admin.
+- **Family accounts:** an admin invites each person. Admins see how many books someone has, not what
+  they are. An admin could sign in as someone with a password reset code, so the person is signed out and
+  shown every date a code was used. Anyone who runs the server can read its database.
 - **Backups and exports:** nightly encrypted server backups to Nextcloud, optional daily personal
   exports to each person's own Nextcloud, CSV or JSON through Android's share menu, and importing a
   JSON export back in.
@@ -69,7 +70,7 @@ You need Node 24 and Docker.
      CORS_ALLOWED_ORIGINS=http://localhost:8081 node index.js
    ```
 
-   Expected: `Readeez server v1.0.0 listening on port 3020`.
+   Expected: `Readeez server v1.0.1 listening on port 3020`.
 
 3. In another terminal, make your first account's invite code:
 
