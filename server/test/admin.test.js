@@ -137,6 +137,80 @@ describe('a removed admin\'s codes', () => {
   });
 });
 
+describe('codes being created while access ends', () => {
+  const unusedFrom = async (id) => (await pool.query('select count(*)::int as n from access_codes where used_at is null and created_by = $1', [id])).rows[0].n;
+  const invite = (admin) => request(app).post('/api/admin/invites').set('Authorization', bearer(admin.token)).send({ role: 'admin' }).then((r) => r);
+
+  // Persistence: requests to create admin invites are running when the password changes on another device.
+  // Whichever finish first get cancelled by the change, and any after it are refused, so none survives.
+  test('no code outlives a password change that overlaps it', async () => {
+    const admin = await createUser({ role: 'admin' });
+    const owner = await auth.createSession(admin.id);
+    const minting = Array.from({ length: 20 }, () => invite(admin));
+    const change = request(app).post('/api/auth/password').set('Authorization', bearer(owner))
+      .send({ currentPassword: PASSWORD, newPassword: 'a-brand-new-password' }).then((r) => r);
+    const results = await Promise.all(minting);
+    expect((await change).status).toBe(200);
+    expect(await unusedFrom(admin.id)).toBe(0);
+    results.forEach((r) => expect([201, 401]).toContain(r.status));
+  });
+
+  // The same when an admin is removed while the requests are running. Their own session may still be
+  // checked while the change is committing, and a demoted admin must not get through either.
+  test('no code outlives removal as an admin', async () => {
+    await createUser({ role: 'admin' });
+    const leaving = await createUser({ role: 'admin' });
+    const minting = Array.from({ length: 20 }, () => invite(leaving));
+    const removal = accounts.setRole(leaving.id, 'member');
+    const results = await Promise.all(minting);
+    await removal;
+    expect(await unusedFrom(leaving.id)).toBe(0);
+    results.forEach((r) => expect([201, 401, 403]).toContain(r.status));
+  });
+
+  // Takeover: the same for a reset code aimed at someone else.
+  test('no reset code outlives a password change that overlaps it', async () => {
+    const admin = await createUser({ role: 'admin' });
+    const owner = await auth.createSession(admin.id);
+    const member = await createUser();
+    const minting = Array.from({ length: 10 }, () => request(app).post(`/api/admin/users/${member.id}/reset-code`).set('Authorization', bearer(admin.token)).then((r) => r));
+    const change = request(app).post('/api/auth/password').set('Authorization', bearer(owner))
+      .send({ currentPassword: PASSWORD, newPassword: 'a-brand-new-password' }).then((r) => r);
+    await Promise.all(minting);
+    await change;
+    expect(await unusedFrom(admin.id)).toBe(0);
+  });
+
+  // After the change, the old session is simply refused.
+  test('a code cannot be created after the session has ended', async () => {
+    const admin = await createUser({ role: 'admin' });
+    const owner = await auth.createSession(admin.id);
+    await request(app).post('/api/auth/password').set('Authorization', bearer(owner))
+      .send({ currentPassword: PASSWORD, newPassword: 'a-brand-new-password' });
+    expect((await invite(admin)).status).toBe(401);
+    expect(await unusedFrom(admin.id)).toBe(0);
+  });
+
+  // A request that passed the sign-in check, then finds its session gone, is refused at the last moment.
+  test('the last-moment check refuses an ended session or a demoted admin', async () => {
+    const admin = await createUser({ role: 'admin' });
+    const second = await createUser({ role: 'admin' });
+    const client = await pool.connect();
+    expect(await auth.adminStillValid(client, admin.id, admin.token)).toBe(true);
+    expect(await auth.adminStillValid(client, admin.id, 'not-a-session')).toBe(false);
+    await accounts.setRole(second.id, 'member');
+    expect(await auth.adminStillValid(client, second.id, second.token)).toBe(false);
+    client.release();
+  });
+
+  // Normal behaviour: creating a code still works and returns it.
+  test('a working admin can still create codes', async () => {
+    const admin = await createUser({ role: 'admin' });
+    expect((await invite(admin)).status).toBe(201);
+    expect(await unusedFrom(admin.id)).toBe(1);
+  });
+});
+
 describe('terminal panel commands', () => {
   test('status reports counts as name and value lines', async () => {
     await createUser({ role: 'admin' });

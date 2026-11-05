@@ -7,6 +7,7 @@ const express = require('express');
 const rateLimit = require('express-rate-limit').default;
 const pool = require('../db');
 const auth = require('../auth');
+const { PostgresRateStore } = require('../rateLimitStore');
 const log = require('../logger')('auth');
 
 // One message for every sign-in failure, so nobody can use the sign-in form to
@@ -23,16 +24,17 @@ const MAX_NAME = 80;
 const CONTROL_CHARS = /[\u0000-\u001f\u007f-\u009f]/g;
 
 /**
- * Builds the router. A fresh one per app instance means rate-limit counters aren't
- * shared between test files.
+ * Builds the router.
  * Out: an Express router with the routes below.
  */
 function createAuthRouter() {
   const router = express.Router();
 
   // Limits guessing per network address: 10 failures per 15 minutes on the public
-  // routes. Successful requests don't count, so normal use never trips it.
+  // routes. Successful requests don't count, so normal use never trips it. The counts
+  // live in the database, so a restart doesn't give anyone fresh attempts.
   const limiter = rateLimit({
+    store: new PostgresRateStore('auth:'),
     windowMs: 15 * 60 * 1000,
     limit: 10,
     skipSuccessfulRequests: true,
@@ -110,14 +112,18 @@ function createAuthRouter() {
     if (!(await auth.checkPassword(password, user && user.password_hash))) {
       return res.status(401).json({ error: BAD_LOGIN });
     }
-    return res.json({ token: await auth.createSession(user.id), user: publicUser(user, await auth.resetHistory(user.id)) });
+    const token = await auth.createSession(user.id, user.password_hash);
+    // The password changed, or the account was disabled, while this was being checked.
+    if (!token) return res.status(401).json({ error: BAD_LOGIN });
+    return res.json({ token, user: publicUser(user, await auth.resetHistory(user.id)) });
   });
 
   /**
    * POST /api/auth/reset — public. Sets a new password using an admin's reset code.
    * In: { code, password }. Out: { ok: true }.
    * Side effects: uses up the code, which stays on record as used, so the person is shown the time at their
-   * next sign-in. Also changes the password, signs out every device, and disconnects Nextcloud (see below).
+   * next sign-in. Also changes the password, and ends sessions, the Nextcloud link and unused codes (see
+   * auth.applyNewPassword).
    */
   router.post('/reset', limiter, async (req, res) => {
     const { code, password } = req.body || {};
@@ -135,11 +141,7 @@ function createAuthRouter() {
         return res.status(400).json({ error: BAD_CODE });
       }
       userId = reset.user_id;
-      await client.query('update users set password_hash = $1 where id = $2', [hash, userId]);
-      // Whoever had access before this may have pointed the daily export at their own Nextcloud, which
-      // would keep sending this person's books after they lost access. Signing them out alone wouldn't
-      // stop that, so a new password also removes the link and its stored app password.
-      await client.query('delete from nextcloud_links where user_id = $1', [userId]);
+      await auth.applyNewPassword(client, userId, hash);
       await client.query('commit');
     } catch (err) {
       await client.query('rollback').catch(() => {});
@@ -147,7 +149,6 @@ function createAuthRouter() {
     } finally {
       client.release();
     }
-    await auth.deleteSessions(userId);
     log.info(`password reset by code: user ${userId}`);
     return res.json({ ok: true });
   });
@@ -172,9 +173,8 @@ function createAuthRouter() {
    * POST /api/auth/password — signed-in users; changes their own password.
    * In: { currentPassword, newPassword }. Rate-limited and re-checks the current
    * password, so someone holding an unlocked phone can't take over the account.
-   * Side effects: updates the hash, signs out every other device, and disconnects Nextcloud, for the same
-   * reason as a reset: changing a password is what someone does after a suspected break-in, and it has to
-   * end that person's access completely. Out: { ok: true, nextcloudDisconnected }.
+   * Side effects: changes the password and ends other sessions, the Nextcloud link and unused codes (see
+   * auth.applyNewPassword). Out: { ok: true, nextcloudDisconnected }.
    */
   router.post('/password', limiter, auth.requireAuth, async (req, res) => {
     const { currentPassword, newPassword } = req.body || {};
@@ -184,10 +184,27 @@ function createAuthRouter() {
     }
     const problem = auth.passwordProblem(newPassword);
     if (problem) return res.status(400).json({ error: problem });
-    await pool.query('update users set password_hash = $1 where id = $2', [await auth.hashPassword(newPassword), req.user.id]);
-    await auth.deleteSessions(req.user.id, req.token);
-    const { rowCount } = await pool.query('delete from nextcloud_links where user_id = $1', [req.user.id]);
-    return res.json({ ok: true, nextcloudDisconnected: rowCount > 0 });
+    const hash = await auth.hashPassword(newPassword);
+    const client = await pool.connect();
+    try {
+      await client.query('begin');
+      const { changed, nextcloudDisconnected } = await auth.applyNewPassword(client, req.user.id, hash, {
+        keepToken: req.token,
+        expectedHash: rows[0].password_hash,
+      });
+      // The password changed while this request was checking the old one, so the newer change stands.
+      if (!changed) {
+        await client.query('rollback');
+        return res.status(401).json({ error: 'Your current password isn\'t right.' });
+      }
+      await client.query('commit');
+      return res.json({ ok: true, nextcloudDisconnected });
+    } catch (err) {
+      await client.query('rollback').catch(() => {});
+      throw err;
+    } finally {
+      client.release();
+    }
   });
 
   return router;

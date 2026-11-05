@@ -5,11 +5,13 @@
 
 const express = require('express');
 const cors = require('cors');
+const rateLimit = require('express-rate-limit').default;
 const helmet = require('helmet');
 const pool = require('./db');
 const { createAuthRouter } = require('./routes/auth');
 const { createSyncRouter } = require('./routes/sync');
 const { requireAuth } = require('./auth');
+const { PostgresRateStore } = require('./rateLimitStore');
 const { createAdminRouter } = require('./routes/admin');
 const { createNextcloudRouter } = require('./routes/nextcloud');
 const { recordRequest } = require('./metrics');
@@ -27,9 +29,11 @@ function allowedOrigins() {
 
 /**
  * Builds the Express app.
+ * In: optionally { syncLimit }, how many sync requests an account may make per 15 minutes. Far more than real
+ * use needs: a phone syncs after edits, in batches of 200 books.
  * Out: the app, ready to listen or to be tested. Touches nothing until it's used.
  */
-function createApp() {
+function createApp({ syncLimit = 600 } = {}) {
   const app = express();
 
   // The reverse proxy (Caddy) connects to this server, so every request appears to
@@ -79,7 +83,18 @@ function createApp() {
   // memory. Sync gets more room because a batch of books with long notes is large, so it
   // checks the sign-in first: otherwise anyone at all could make the server read and parse
   // 12 MB per request, with no account.
-  app.use('/api/sync', requireAuth, express.json({ limit: '12mb' }), createSyncRouter());
+  // The limit is per account, not per address, because a family may share one address, and it comes after
+  // the sign-in check, so nobody can use up another person's allowance.
+  const syncLimiter = rateLimit({
+    store: new PostgresRateStore('sync:'),
+    windowMs: 15 * 60 * 1000,
+    limit: syncLimit,
+    keyGenerator: (req) => req.user.id,
+    standardHeaders: 'draft-7',
+    legacyHeaders: false,
+    message: { error: 'Too many sync requests. Please wait a few minutes.' },
+  });
+  app.use('/api/sync', requireAuth, syncLimiter, express.json({ limit: '12mb' }), createSyncRouter());
   app.use('/api/auth', express.json({ limit: '16kb' }), createAuthRouter());
   app.use('/api/admin', express.json({ limit: '16kb' }), createAdminRouter());
   app.use('/api/nextcloud', express.json({ limit: '16kb' }), createNextcloudRouter());

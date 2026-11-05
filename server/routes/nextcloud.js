@@ -6,9 +6,10 @@
 const express = require('express');
 const rateLimit = require('express-rate-limit').default;
 const pool = require('../db');
-const { requireAuth } = require('../auth');
+const { requireAuth, sessionStillValid } = require('../auth');
 const { encrypt } = require('../secrets');
 const nextcloud = require('../nextcloud');
+const { PostgresRateStore } = require('../rateLimitStore');
 
 /**
  * Converts a link row into what the app may see. The encrypted password is left
@@ -47,6 +48,7 @@ function createNextcloudRouter() {
   // Saving and exporting make this server connect elsewhere, so they're limited
   // per person: this can't be used to hammer another machine, or to scan addresses.
   const limiter = rateLimit({
+    store: new PostgresRateStore('nextcloud:'),
     windowMs: 15 * 60 * 1000,
     limit: 20,
     keyGenerator: (req) => req.user.id,
@@ -78,16 +80,33 @@ function createNextcloudRouter() {
       const cleanUrl = nextcloud.checkBaseUrl(baseUrl);
       const link = { baseUrl: cleanUrl, username: username.trim(), password: appPassword };
       await nextcloud.testConnection(link);
-      const { rows } = await pool.query(
-        `insert into nextcloud_links (user_id, base_url, username, app_password_enc, daily_export)
-         values ($1, $2, $3, $4, $5)
-         on conflict (user_id) do update set base_url = excluded.base_url, username = excluded.username,
-           app_password_enc = excluded.app_password_enc, daily_export = excluded.daily_export,
-           last_error = null, updated_at = now()
-         returning *`,
-        [req.user.id, cleanUrl, link.username, encrypt(appPassword), dailyExport === true]
-      );
-      return res.json(publicLink(rows[0]));
+      // That test waits on a server the caller chose, so it can be held open on purpose. If the password
+      // changed meanwhile, this request's session is over, and saving now would restore the link that the
+      // change removed. So the session is checked again here, in the same transaction as the save.
+      const client = await pool.connect();
+      try {
+        await client.query('begin');
+        if (!(await sessionStillValid(client, req.user.id, req.token))) {
+          await client.query('rollback');
+          return res.status(401).json({ error: 'Please sign in.' });
+        }
+        const { rows } = await client.query(
+          `insert into nextcloud_links (user_id, base_url, username, app_password_enc, daily_export)
+           values ($1, $2, $3, $4, $5)
+           on conflict (user_id) do update set base_url = excluded.base_url, username = excluded.username,
+             app_password_enc = excluded.app_password_enc, daily_export = excluded.daily_export,
+             last_error = null, updated_at = now()
+           returning *`,
+          [req.user.id, cleanUrl, link.username, encrypt(appPassword), dailyExport === true]
+        );
+        await client.query('commit');
+        return res.json(publicLink(rows[0]));
+      } catch (err) {
+        await client.query('rollback').catch(() => {});
+        throw err;
+      } finally {
+        client.release();
+      }
     } catch (err) {
       return handleError(err, res);
     }

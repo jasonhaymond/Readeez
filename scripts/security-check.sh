@@ -235,22 +235,25 @@ else
   record "Public repo sanitized" PASS "no private hosts, addresses or emails"
 fi
 
+# Pulls the totals out of the test runner's output, e.g. "228 passed (228)". In: the output file.
+test_summary() { grep -E '^\s*Tests ' "$1" | sed -E 's/^\s*Tests +//'; }
+
 # 4. Project tests: the server's suite is the security tests, run against real Postgres.
 if [ "$DOCKER_OK" = 1 ]; then
-  if (cd server && npx jest --runInBand --verbose) > "$TMP/server-tests.txt" 2>&1; then
-    record "Server tests (real Postgres)" PASS "$(grep -E '^Tests:' "$TMP/server-tests.txt" | sed 's/Tests: *//')"
+  if (cd server && NO_COLOR=1 npx vitest run --reporter=verbose) > "$TMP/server-tests.txt" 2>&1; then
+    record "Server tests (real Postgres)" PASS "$(test_summary "$TMP/server-tests.txt")"
   else
-    record "Server tests (real Postgres)" FAIL "$(grep -E '^Tests:' "$TMP/server-tests.txt" | sed 's/Tests: *//')"
+    record "Server tests (real Postgres)" FAIL "$(test_summary "$TMP/server-tests.txt")"
   fi
-  { echo '```'; grep -E '^\s*(✓|✕|PASS|FAIL|●)|^Tests:' "$TMP/server-tests.txt"; echo '```'; } > "$TMP/server-tests.md"
+  { echo '```'; grep -E '^\s*(✓|×|FAIL)|^\s*Tests ' "$TMP/server-tests.txt"; echo '```'; } > "$TMP/server-tests.md"
   add_section "Server tests by area" "$TMP/server-tests.md"
 else
   record "Server tests (real Postgres)" "NOT RUN" "Docker isn't available"
 fi
-if npx jest > "$TMP/app-tests.txt" 2>&1; then
-  record "App logic tests" PASS "$(grep -E '^Tests:' "$TMP/app-tests.txt" | sed 's/Tests: *//')"
+if NO_COLOR=1 npx vitest run > "$TMP/app-tests.txt" 2>&1; then
+  record "App logic tests" PASS "$(test_summary "$TMP/app-tests.txt")"
 else
-  record "App logic tests" FAIL "$(grep -E '^Tests:' "$TMP/app-tests.txt" | sed 's/Tests: *//')"
+  record "App logic tests" FAIL "$(test_summary "$TMP/app-tests.txt")"
 fi
 
 # 5. The AI diff review can't be scripted, so it's listed rather than implied.

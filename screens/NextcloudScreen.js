@@ -56,7 +56,7 @@ export default function NextcloudScreen() {
           {link?.connected ? (
             <Card>
               <Text style={[styles.strong, { color: colors.text }]}>Connected as {link.username}</Text>
-              <Text style={[styles.text, { color: colors.muted }]}>Your books are sent here. If you don't recognise this, tap Disconnect and change your password.</Text>
+              <Text style={[styles.text, { color: colors.muted }]}>Exports of your books go here. If you don't recognise this, tap Disconnect and change your password.</Text>
               <Text style={[styles.text, { color: colors.muted }]}>{link.baseUrl}</Text>
               <Text style={[styles.text, { color: colors.muted }]}>
                 {link.lastExportAt ? `Last export: ${new Date(link.lastExportAt).toLocaleString()}` : 'No exports yet.'}

@@ -10,7 +10,7 @@ const PASSWORD = 'correct-horse-battery';
 
 /** Empties every data table, so no test can depend on another's leftovers. */
 async function resetDb() {
-  await pool.query('truncate users, sessions, access_codes, books, nextcloud_links, app_meta, backup_runs, admin_jobs cascade');
+  await pool.query('truncate users, sessions, access_codes, books, nextcloud_links, app_meta, backup_runs, admin_jobs, rate_limits cascade');
 }
 
 /**

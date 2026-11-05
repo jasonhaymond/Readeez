@@ -1,7 +1,7 @@
 // test/globalSetup.js
 // Runs once before all tests: starts a throwaway Postgres container, waits for it,
 // and applies the real migrations. It has its own name and port, so it can't touch
-// a development or production database. Jest runs this in a separate process, so the
+// a development or production database. The test runner runs this in a separate process, so the
 // connection details reach the test workers through a file (see setupEnv.js).
 
 const { execSync } = require('child_process');
@@ -35,8 +35,8 @@ async function waitForPostgres() {
 }
 
 /**
- * Starts the database and prepares it. Side effects: runs a Docker container, which
- * globalTeardown.js removes, and writes the settings file for the test workers.
+ * Starts the database and prepares it. Side effects: runs a Docker container and writes the settings file for
+ * the test workers. Out: a function the test runner calls at the end, which removes both.
  */
 module.exports = async function globalSetup() {
   // Clears a container left behind by a crashed earlier run.
@@ -67,4 +67,13 @@ module.exports = async function globalSetup() {
   const pool = require('../db');
   await migrate();
   await pool.end();
+
+  return () => {
+    try {
+      execSync(`docker rm -f ${CONTAINER}`, { stdio: 'ignore' });
+    } catch {
+      // Already gone.
+    }
+    fs.rmSync(ENV_FILE, { force: true });
+  };
 };

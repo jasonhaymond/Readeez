@@ -4,7 +4,7 @@ A simple book tracker for a family. Log what you've read with its authors, categ
 rating, read date and your notes. It's an Android app that works offline and syncs to your own
 server, with backups and exports to Nextcloud.
 
-**Current version: 1.0.2** · [Changelog](CHANGELOG.md)
+**Current version: 1.0.3** · [Changelog](CHANGELOG.md)
 
 ## Documentation
 
@@ -70,7 +70,7 @@ You need Node 24 and Docker.
      CORS_ALLOWED_ORIGINS=http://localhost:8081 node index.js
    ```
 
-   Expected: `Readeez server v1.0.2 listening on port 3020`.
+   Expected: `Readeez server v1.0.3 listening on port 3020`.
 
 3. In another terminal, make your first account's invite code:
 
@@ -112,9 +112,10 @@ regular expression per line. Without that file, the check reports NOT RUN.
 - `@react-native-community/datetimepicker`
 - `react` and `react-dom`
 
-The moderate and low `npm audit` findings are in development and build tools (Jest, ESLint, Expo's
-CLI), which don't ship in the APK or the server image. Their fixes are downgrades to much older major
-versions, so they wait for upstream releases.
+`package.json` and `server/package.json` also force newer `glob` and `minimatch` through npm `overrides`, because
+Expo's CLI and ESLint still ask for versions with known advisories. Remove the overrides once those packages
+catch up. The tests run on Vitest rather than Jest because Jest depends on `deepmerge`, which has an advisory and no
+fixed release.
 
 ## Versioning
 

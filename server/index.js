@@ -9,6 +9,7 @@ const { migrate } = require('./migrate');
 const { recordAppVersion, version } = require('./appMeta');
 const { createApp } = require('./app');
 const { runDueExports } = require('./nextcloud');
+const { pruneRateLimits } = require('./rateLimitStore');
 const log = require('./logger')('server');
 
 const EXPORT_CHECK_MS = 60 * 60 * 1000;
@@ -31,6 +32,8 @@ async function main() {
   // A failed run is logged and tried again next hour; it must not stop the server.
   const runExports = () => runDueExports().catch((err) => log.error(`export run failed: ${err.message}`));
   setInterval(runExports, EXPORT_CHECK_MS);
+  // Clears finished rate-limit windows on the same hourly timer. Failing here changes nothing that matters.
+  setInterval(() => pruneRateLimits().catch((err) => log.warn(`rate limit cleanup failed: ${err.message}`)), EXPORT_CHECK_MS);
   runExports();
 }
 

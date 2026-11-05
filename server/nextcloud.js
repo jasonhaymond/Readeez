@@ -23,6 +23,9 @@ const log = require('./logger')('nextcloud');
 
 const ROOT_FOLDER = 'Readeez';
 const TIMEOUT_MS = 30000;
+// The limit above only covers silence, so a server sending one byte at a time could hold a request open for
+// years. This one covers the whole request.
+const DEADLINE_MS = 120000;
 const DAYS_KEPT = 7;
 const MAX_RESPONSE = 5 * 1024 * 1024;
 // One of this app's export files, e.g. readeez-export-20261104.csv. Only names like
@@ -123,12 +126,12 @@ function publicOnlyLookup(hostname, options, callback) {
 /**
  * Sends one request to the person's Nextcloud.
  * In: link ({ baseUrl, username, password }), a method, a path of already-encoded
- * pieces after the WebDAV root, and optionally a body and headers.
+ * pieces after the WebDAV root, and optionally a body, headers and a shorter time limit.
  * Out: { status, text }. Redirects aren't followed, since one could point at a
  * private address or carry the password somewhere else.
  * Side effects: whatever the method does on the Nextcloud.
  */
-function davRequest(link, method, davPath, { body, headers = {} } = {}) {
+function davRequest(link, method, davPath, { body, headers = {}, deadlineMs = DEADLINE_MS } = {}) {
   const base = new URL(checkBaseUrl(link.baseUrl));
   const hostname = base.hostname.replace(/^\[|\]$/g, '');
   // A literal IP skips DNS, so the lookup guard never sees it; it's checked here.
@@ -163,7 +166,10 @@ function davRequest(link, method, davPath, { body, headers = {} } = {}) {
         res.on('end', () => resolve({ status: res.statusCode, text: Buffer.concat(chunks).toString('utf8') }));
       }
     );
-    req.on('timeout', () => req.destroy(new NextcloudError(`${hostname} took too long to answer.`)));
+    const tooLong = () => req.destroy(new NextcloudError(`${hostname} took too long to answer.`));
+    req.on('timeout', tooLong);
+    const deadline = setTimeout(tooLong, deadlineMs);
+    req.on('close', () => clearTimeout(deadline));
     req.on('error', (err) => reject(err instanceof NextcloudError ? err : new NextcloudError(`Couldn't reach ${hostname}.`)));
     if (body !== undefined) req.write(body);
     req.end();
@@ -294,4 +300,4 @@ async function runDueExports() {
   }
 }
 
-module.exports = { NextcloudError, checkBaseUrl, testConnection, exportForUser, runDueExports, isPrivateAddress };
+module.exports = { NextcloudError, checkBaseUrl, davRequest, testConnection, exportForUser, runDueExports, isPrivateAddress };

@@ -1,13 +1,13 @@
 {
   "name": "readeez",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "main": "index.js",
   "private": true,
   "scripts": {
     "start": "expo start",
     "android": "expo start --android",
     "web": "expo start --web",
-    "test": "jest",
+    "test": "vitest run",
     "build:android": "node scripts/build-android.mjs",
     "security": "bash scripts/security-check.sh"
   },
@@ -38,15 +38,10 @@
   "devDependencies": {
     "eslint": "^10.14.0",
     "eslint-plugin-security": "^4.2.1",
-    "jest": "^30.5.2"
+    "vitest": "^5.1.0"
   },
-  "jest": {
-    "testMatch": [
-      "<rootDir>/test/**/*.test.js"
-    ],
-    "testEnvironment": "node",
-    "modulePathIgnorePatterns": [
-      "<rootDir>/server/"
-    ]
+  "overrides": {
+    "glob": "^14.0.3",
+    "minimatch": "^11.0.4"
   }
 }

@@ -59,7 +59,7 @@ describe('data leaks', () => {
     // The sign-in check (the first query) really runs; the route's own query then fails.
     const realQuery = pool.query.bind(pool);
     let calls = 0;
-    const spy = jest.spyOn(pool, 'query').mockImplementation((...args) => {
+    const spy = vi.spyOn(pool, 'query').mockImplementation((...args) => {
       calls += 1;
       return calls === 1 ? realQuery(...args) : Promise.reject(new Error('connection to secret-db-host:5432 failed'));
     });
@@ -73,8 +73,8 @@ describe('data leaks', () => {
   // sign-in and sync run, and all output is searched.
   test('passwords, tokens and book contents are not logged', async () => {
     const output = [];
-    const out = jest.spyOn(process.stdout, 'write').mockImplementation((text) => { output.push(String(text)); return true; });
-    const err = jest.spyOn(process.stderr, 'write').mockImplementation((text) => { output.push(String(text)); return true; });
+    const out = vi.spyOn(process.stdout, 'write').mockImplementation((text) => { output.push(String(text)); return true; });
+    const err = vi.spyOn(process.stderr, 'write').mockImplementation((text) => { output.push(String(text)); return true; });
     const env = process.env.NODE_ENV;
     process.env.NODE_ENV = 'production';
     try {
@@ -112,7 +112,7 @@ describe('health check', () => {
 
   // "Up" must mean the database works, not just that the process is running.
   test('it reports unavailable when the database fails', async () => {
-    const spy = jest.spyOn(pool, 'query').mockRejectedValueOnce(new Error('down'));
+    const spy = vi.spyOn(pool, 'query').mockRejectedValueOnce(new Error('down'));
     const res = await request(app).get('/api/health');
     spy.mockRestore();
     expect(res.status).toBe(503);

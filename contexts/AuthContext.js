@@ -8,6 +8,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as api from '../lib/api';
 import { clearToken, loadToken, saveToken } from '../lib/tokenStore';
 import { clearAccount } from '../lib/bookStore';
+import { seal, unseal } from '../lib/localCrypto';
 
 const USER_KEY = 'rz:user';
 const AuthContext = createContext(null);
@@ -40,10 +41,11 @@ export function AuthProvider({ children }) {
       const [token, saved] = await Promise.all([loadToken(), AsyncStorage.getItem(USER_KEY)]);
       if (token && saved) {
         api.setAuthToken(token);
-        setUser(JSON.parse(saved));
+        // The saved details are encrypted. If they can't be read, the catch below leads to the sign-in screen.
+        setUser(await unseal(USER_KEY, saved));
         // Picks up changes made elsewhere, such as a reset notice. Offline, the saved copy stands.
         api.request('GET', '/api/auth/me').then(async ({ user: fresh }) => {
-          await AsyncStorage.setItem(USER_KEY, JSON.stringify(fresh));
+          await AsyncStorage.setItem(USER_KEY, await seal(USER_KEY, fresh));
           setUser(fresh);
         }).catch(() => {});
       }
@@ -58,7 +60,7 @@ export function AuthProvider({ children }) {
   const startSession = useCallback(async ({ token, user: signedIn }) => {
     api.setAuthToken(token);
     await saveToken(token);
-    await AsyncStorage.setItem(USER_KEY, JSON.stringify(signedIn));
+    await AsyncStorage.setItem(USER_KEY, await seal(USER_KEY, signedIn));
     setUser(signedIn);
   }, []);
 

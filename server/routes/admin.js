@@ -33,6 +33,31 @@ function handleAccountError(err, res) {
 }
 
 /**
+ * Creates a code only if the request still comes from a working admin (see auth.adminStillValid), all in one
+ * transaction. In: the request, the response, and a function given a database client that creates the code.
+ * Out: the code, or null after answering 401.
+ */
+async function mintCode(req, res, create) {
+  const client = await pool.connect();
+  try {
+    await client.query('begin');
+    if (!(await auth.adminStillValid(client, req.user.id, req.token))) {
+      await client.query('rollback');
+      res.status(401).json({ error: 'Please sign in.' });
+      return null;
+    }
+    const code = await create(client);
+    await client.query('commit');
+    return code;
+  } catch (err) {
+    await client.query('rollback').catch(() => {});
+    throw err;
+  } finally {
+    client.release();
+  }
+}
+
+/**
  * Converts a job row into what the app sees.
  * In: a row or undefined. Out: the job, or null.
  */
@@ -70,9 +95,10 @@ function createAdminRouter() {
    */
   router.post('/invites', async (req, res) => {
     const role = req.body?.role === 'admin' ? 'admin' : 'member';
-    const code = await auth.createInvite(role, req.user.id);
+    const code = await mintCode(req, res, (client) => auth.createInvite(role, req.user.id, client));
+    if (!code) return undefined;
     log.info(`invite created by user ${req.user.id} for role ${role}`);
-    res.status(201).json({ code, role, expiresInDays: 7 });
+    return res.status(201).json({ code, role, expiresInDays: 7 });
   });
 
   /**
@@ -86,7 +112,8 @@ function createAdminRouter() {
     if (!UUID.test(req.params.id)) return res.status(400).json({ error: 'Bad account id.' });
     const { rows } = await pool.query('select id from users where id = $1', [req.params.id]);
     if (!rows[0]) return res.status(404).json({ error: 'No such account.' });
-    const code = await auth.createResetCode(rows[0].id, req.user.id);
+    const code = await mintCode(req, res, (client) => auth.createResetCode(rows[0].id, req.user.id, client));
+    if (!code) return undefined;
     log.info(`reset code created by user ${req.user.id} for user ${rows[0].id}`);
     return res.status(201).json({ code, expiresInHours: 24 });
   });

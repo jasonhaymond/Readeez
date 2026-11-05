@@ -2,7 +2,7 @@
   "expo": {
     "name": "Readeez",
     "slug": "readeez",
-    "version": "1.0.2",
+    "version": "1.0.3",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "automatic",
@@ -10,7 +10,7 @@
     "android": {
       "package": "com.haymondtechnologies.readeez",
       "allowBackup": false,
-      "versionCode": 10002,
+      "versionCode": 10003,
       "adaptiveIcon": {
         "backgroundColor": "#9A5B13",
         "foregroundImage": "./assets/android-icon-foreground.png",

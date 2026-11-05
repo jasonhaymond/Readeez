@@ -53,16 +53,70 @@ const sha256 = (value) => crypto.createHash('sha256').update(value).digest('hex'
 
 /**
  * Starts a session for a device.
- * In: the user's id. Out: the token to give the device (shown nowhere else).
+ * In: the user's id and, for a sign-in, the password hash that was just checked.
+ * Out: the token to give the device (shown nowhere else), or null if that hash is no longer current or the
+ * account is disabled.
  * Side effects: inserts a sessions row holding only the token's hash.
+ *
+ * Checking a password is deliberately slow, so the password can change while a sign-in is checking the
+ * old one. Without the hash condition, that sign-in would get a session just after the change had ended
+ * them all, and someone who knew the old password would keep their access. "for share" makes this wait
+ * for any password change in progress, then look at the new hash. A session made just before a change
+ * is removed by that change.
  */
-async function createSession(userId) {
+async function createSession(userId, passwordHash = null) {
   const token = crypto.randomBytes(32).toString('base64url');
-  await pool.query(
-    `insert into sessions (token_hash, user_id, expires_at) values ($1, $2, now() + make_interval(days => $3))`,
-    [sha256(token), userId, SESSION_DAYS]
+  const { rowCount } = await pool.query(
+    `insert into sessions (token_hash, user_id, expires_at)
+     select $1, id, now() + make_interval(days => $3) from users
+      where id = $2 and disabled_at is null and ($4::text is null or password_hash = $4) for share`,
+    [sha256(token), userId, SESSION_DAYS, passwordHash]
   );
-  return token;
+  return rowCount ? token : null;
+}
+
+/**
+ * Sets a new password and ends what the old one could have started: other sessions, the Nextcloud link (and
+ * its stored app password), and unused codes the person created or that were made for them. All of it happens
+ * together, because a password change is what someone does after a suspected break-in, and a partial one leaves
+ * a way back in. Used codes stay, since they're the reset history.
+ * In: a database client inside a transaction, the user's id, the new hash, and optionally keepToken (the session
+ * to keep: the device making the change) and expectedHash (the hash the caller's password check was against).
+ * Out: { changed, nextcloudDisconnected }. changed is false, with nothing altered, if the password has moved on.
+ *
+ * expectedHash matters because that check is deliberately slow. Without it, a password change already underway
+ * could finish after a newer reset, and overwrite it with a password the attacker chose. The database re-reads
+ * the condition after waiting on any change in progress, so this holds whichever one reaches the row first.
+ */
+async function applyNewPassword(client, userId, hash, { keepToken = null, expectedHash = null } = {}) {
+  const { rowCount: updated } = await client.query(
+    'update users set password_hash = $1 where id = $2 and ($3::text is null or password_hash = $3)',
+    [hash, userId, expectedHash]
+  );
+  if (!updated) return { changed: false, nextcloudDisconnected: false };
+  await client.query('delete from sessions where user_id = $1 and token_hash <> $2', [userId, keepToken ? sha256(keepToken) : '']);
+  const { rowCount } = await client.query('delete from nextcloud_links where user_id = $1', [userId]);
+  await client.query(
+    `delete from access_codes where used_at is null and (created_by = $1 or (kind = 'reset' and user_id = $1))`,
+    [userId]
+  );
+  return { changed: true, nextcloudDisconnected: rowCount > 0 };
+}
+
+/**
+ * Confirms a session is still valid, for a request that waited on something slow after signing in. Without this,
+ * a request held open across a password change could finish afterward and undo part of what that change ended.
+ * In: a database client inside a transaction, the user's id, and the token. Out: true or false.
+ * Two separate steps on purpose. The first waits for any password change in progress, and the second is a new
+ * query, so it sees that change's result. One combined query would still see the session as it was when it started.
+ */
+async function sessionStillValid(client, userId, token) {
+  await client.query('select 1 from users where id = $1 for share', [userId]);
+  const { rows } = await client.query(
+    'select 1 from sessions where token_hash = $1 and user_id = $2 and expires_at > now()',
+    [sha256(token), userId]
+  );
+  return rows.length > 0;
 }
 
 /**
@@ -74,8 +128,9 @@ async function deleteSession(token) {
 }
 
 /**
- * Ends all of a person's sessions, optionally keeping the current device's. Used
- * when a password changes or an account is disabled, so a stolen token dies too.
+ * Ends all of a person's sessions, optionally keeping the current device's. Used when an
+ * account is disabled, so a stolen token dies too. A password change does this itself, in
+ * its own transaction (see applyNewPassword).
  * In: the user's id, and optionally the token to keep. Side effects: deletes rows.
  */
 async function deleteSessions(userId, exceptToken = null) {
@@ -148,13 +203,13 @@ const hashCode = (code) => sha256(String(code || '').toUpperCase().replace(/[^0-
 
 /**
  * Creates an invite code for a new family member.
- * In: role ('admin' or 'member') and the creating admin's id (null for the first
- * admin's code from the command line). Out: the plain code, shown only this once.
+ * In: role ('admin' or 'member'), the creating admin's id (null for a code from the command line),
+ * and optionally a database client to join a transaction. Out: the plain code, shown only this once.
  * Side effects: inserts a hashed access_codes row that expires in 7 days.
  */
-async function createInvite(role, createdBy) {
+async function createInvite(role, createdBy, db = pool) {
   const code = generateCode();
-  await pool.query(
+  await db.query(
     `insert into access_codes (code_hash, kind, role, created_by, expires_at)
      values ($1, 'invite', $2, $3, now() + make_interval(days => $4))`,
     [hashCode(code), role, createdBy, INVITE_DAYS]
@@ -165,14 +220,15 @@ async function createInvite(role, createdBy) {
 /**
  * Creates a password-reset code. There's no email in this app, so an admin hands
  * the code to the person directly.
- * In: the account's id and the admin's id. Out: the plain code, shown only once.
+ * In: the account's id, the admin's id (null for a code from the command line), and optionally a
+ * database client to join a transaction. Out: the plain code, shown only once.
  * Side effects: cancels any earlier unused reset codes for that account, and
  * inserts a new one that expires in 24 hours.
  */
-async function createResetCode(userId, createdBy) {
+async function createResetCode(userId, createdBy, db = pool) {
   const code = generateCode();
-  await pool.query(`delete from access_codes where kind = 'reset' and user_id = $1 and used_at is null`, [userId]);
-  await pool.query(
+  await db.query(`delete from access_codes where kind = 'reset' and user_id = $1 and used_at is null`, [userId]);
+  await db.query(
     `insert into access_codes (code_hash, kind, user_id, created_by, expires_at)
      values ($1, 'reset', $2, $3, now() + make_interval(hours => $4))`,
     [hashCode(code), userId, createdBy, RESET_HOURS]
@@ -216,7 +272,23 @@ async function resetHistory(userId) {
   };
 }
 
+/**
+ * Confirms a request is still coming from a working admin, just before it creates a code. A code created by a
+ * request already underway when the admin's password changed, or when they were removed, would otherwise slip
+ * past the cancelling and become a way back in. Waiting on the account's row (see sessionStillValid) means
+ * either this sees the change and refuses, or the change comes after and cancels what this creates.
+ * In: a database client inside a transaction, the user's id, and the token. Out: true or false.
+ */
+async function adminStillValid(client, userId, token) {
+  if (!(await sessionStillValid(client, userId, token))) return false;
+  const { rows } = await client.query(`select 1 from users where id = $1 and role = 'admin' and disabled_at is null`, [userId]);
+  return rows.length > 0;
+}
+
 module.exports = {
+  applyNewPassword,
+  sessionStillValid,
+  adminStillValid,
   resetHistory,
   passwordProblem,
   hashPassword,

@@ -301,6 +301,145 @@ describe('the admin reset history', () => {
   });
 });
 
+describe('a sign-in overlapping a password change', () => {
+  // Session survival: a sign-in checks the old password, the password changes, then the sign-in tries to
+  // start its session. That session must not be created, or the old password would keep working for 90 days.
+  test('no session is created from a password that has since changed', async () => {
+    const user = await createUser({ email: 'sam@example.com' });
+    const { rows: [{ password_hash: oldHash }] } = await pool.query('select password_hash from users where id = $1', [user.id]);
+    const owner = await auth.createSession(user.id);
+    await request(app).post('/api/auth/password').set('Authorization', bearer(owner))
+      .send({ currentPassword: PASSWORD, newPassword: 'a-brand-new-password' });
+    expect(await auth.createSession(user.id, oldHash)).toBeNull();
+    const { rows } = await pool.query('select count(*)::int as n from sessions where user_id = $1', [user.id]);
+    expect(rows[0].n).toBe(1);
+  });
+
+  // The same check holds with a real overlap: many sign-ins racing a change, and none outlives it.
+  test('sign-ins racing a password change leave none behind', async () => {
+    const user = await createUser({ email: 'sam@example.com' });
+    const signIn = () => request(app).post('/api/auth/login').send({ email: 'sam@example.com', password: PASSWORD });
+    const racing = Array.from({ length: 6 }, signIn);
+    const change = request(app).post('/api/auth/password').set('Authorization', bearer(user.token))
+      .send({ currentPassword: PASSWORD, newPassword: 'a-brand-new-password' });
+    const results = await Promise.all(racing);
+    expect((await change).status).toBe(200);
+    for (const res of results.filter((r) => r.status === 200)) {
+      expect((await request(app).get('/api/auth/me').set('Authorization', bearer(res.body.token))).status).toBe(401);
+    }
+  });
+
+  // A disabled account can't get a session by the same route.
+  test('no session is created for a disabled account', async () => {
+    const user = await createUser();
+    const { rows: [{ password_hash: hash }] } = await pool.query('select password_hash from users where id = $1', [user.id]);
+    await pool.query('update users set disabled_at = now() where id = $1', [user.id]);
+    expect(await auth.createSession(user.id, hash)).toBeNull();
+  });
+
+  test('a normal sign-in still works', async () => {
+    await createUser({ email: 'sam@example.com' });
+    const res = await request(app).post('/api/auth/login').send({ email: 'sam@example.com', password: PASSWORD });
+    expect((await request(app).get('/api/auth/me').set('Authorization', bearer(res.body.token))).status).toBe(200);
+  });
+});
+
+describe('a password change overlapping a newer one', () => {
+  // Reset undone: a change already underway checks the old password, then a reset happens, then the change
+  // tries to finish. It must change nothing, or the attacker's password would replace the person's new one.
+  test('a change checked against an old password changes nothing', async () => {
+    const user = await createUser({ email: 'sam@example.com' });
+    const { rows: [{ password_hash: oldHash }] } = await pool.query('select password_hash from users where id = $1', [user.id]);
+    const code = await auth.createResetCode(user.id, null);
+    await request(app).post('/api/auth/reset').send({ code, password: 'the-persons-new-password' });
+    const client = await pool.connect();
+    const result = await auth.applyNewPassword(client, user.id, await auth.hashPassword('attackers-old-password'), { expectedHash: oldHash });
+    client.release();
+    expect(result.changed).toBe(false);
+    expect((await request(app).post('/api/auth/login').send({ email: 'sam@example.com', password: 'the-persons-new-password' })).status).toBe(200);
+  });
+
+  // The same with real requests racing: repeated "changes" back to the old password can't undo the reset.
+  test('changes racing a reset leave the reset in force', async () => {
+    const user = await createUser({ email: 'sam@example.com' });
+    const code = await auth.createResetCode(user.id, null);
+    const changes = Array.from({ length: 5 }, () => request(app).post('/api/auth/password').set('Authorization', bearer(user.token))
+      .send({ currentPassword: PASSWORD, newPassword: PASSWORD }).then((r) => r));
+    const reset = request(app).post('/api/auth/reset').send({ code, password: 'the-persons-new-password' }).then((r) => r);
+    await Promise.all(changes);
+    expect((await reset).status).toBe(200);
+    const login = await request(app).post('/api/auth/login').send({ email: 'sam@example.com', password: 'the-persons-new-password' });
+    expect(login.status).toBe(200);
+  });
+});
+
+describe('unused codes when a password changes', () => {
+  const details = { email: 'back@example.com', displayName: 'Back Again', password: PASSWORD };
+
+  // Privilege persistence: with brief access to an admin's phone, someone makes an admin invite. The admin
+  // changes their password after noticing. The invite must stop working, or it's a permanent way back in.
+  test('changing a password cancels the invites you made', async () => {
+    const admin = await createUser({ role: 'admin' });
+    const code = (await request(app).post('/api/admin/invites').set('Authorization', bearer(admin.token)).send({ role: 'admin' })).body.code;
+    await request(app).post('/api/auth/password').set('Authorization', bearer(admin.token))
+      .send({ currentPassword: PASSWORD, newPassword: 'a-brand-new-password' });
+    expect((await request(app).post('/api/auth/redeem').send({ ...details, code })).status).toBe(400);
+  });
+
+  // The same when the admin recovers by reset code rather than changing it themselves.
+  test('a reset cancels the invites you made', async () => {
+    const admin = await createUser({ role: 'admin' });
+    const invite = (await request(app).post('/api/admin/invites').set('Authorization', bearer(admin.token)).send({ role: 'admin' })).body.code;
+    const reset = await auth.createResetCode(admin.id, null);
+    await request(app).post('/api/auth/reset').send({ code: reset, password: 'a-brand-new-password' });
+    expect((await request(app).post('/api/auth/redeem').send({ ...details, code: invite })).status).toBe(400);
+  });
+
+  // Takeover: a reset code someone minted for this account, or for another, dies with the change.
+  test('reset codes you made, or made for you, are cancelled', async () => {
+    const admin = await createUser({ role: 'admin' });
+    const other = await createUser();
+    const forOther = await auth.createResetCode(other.id, admin.id);
+    const forSelf = await auth.createResetCode(admin.id, admin.id);
+    await request(app).post('/api/auth/password').set('Authorization', bearer(admin.token))
+      .send({ currentPassword: PASSWORD, newPassword: 'a-brand-new-password' });
+    for (const code of [forOther, forSelf]) {
+      expect((await request(app).post('/api/auth/reset').send({ code, password: 'attacker-password-1' })).status).toBe(400);
+    }
+  });
+
+  // The history must survive: cancelling covers unused codes only.
+  test('used codes stay in the history', async () => {
+    const user = await createUser({ email: 'sam@example.com' });
+    const code = await auth.createResetCode(user.id, null);
+    await request(app).post('/api/auth/reset').send({ code, password: 'a-brand-new-password' });
+    const login = await request(app).post('/api/auth/login').send({ email: 'sam@example.com', password: 'a-brand-new-password' });
+    await request(app).post('/api/auth/password').set('Authorization', bearer(login.body.token))
+      .send({ currentPassword: 'a-brand-new-password', newPassword: 'another-new-password' });
+    const me = await request(app).get('/api/auth/me').set('Authorization', bearer(login.body.token));
+    expect(me.body.user.adminResets).toHaveLength(1);
+  });
+
+  // Another admin's invites are untouched, so one person's password change doesn't disrupt theirs.
+  test('other people\'s invites keep working', async () => {
+    const admin = await createUser({ role: 'admin' });
+    const other = await createUser({ role: 'admin' });
+    const code = await auth.createInvite('member', other.id);
+    await request(app).post('/api/auth/password').set('Authorization', bearer(admin.token))
+      .send({ currentPassword: PASSWORD, newPassword: 'a-brand-new-password' });
+    expect((await request(app).post('/api/auth/redeem').send({ ...details, code })).status).toBe(201);
+  });
+
+  // A refused password change cancels nothing, or anyone holding a session could wipe a family's invites.
+  test('a refused password change cancels nothing', async () => {
+    const admin = await createUser({ role: 'admin' });
+    const code = await auth.createInvite('member', admin.id);
+    await request(app).post('/api/auth/password').set('Authorization', bearer(admin.token))
+      .send({ currentPassword: 'wrong-password-here', newPassword: 'a-brand-new-password' });
+    expect((await request(app).post('/api/auth/redeem').send({ ...details, code })).status).toBe(201);
+  });
+});
+
 describe('control characters', () => {
   const details = { email: 'new@example.com', displayName: 'New Person', password: PASSWORD };
 

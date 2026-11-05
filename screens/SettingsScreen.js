@@ -235,7 +235,7 @@ function ChangePasswordDialog({ visible, onClose }) {
     <Dialog visible={visible} title="Change password" confirmLabel="Change" busy={busy} onConfirm={submit} onCancel={close}>
       <Message text={error} />
       <Field label="Current password" value={current} onChangeText={setCurrent} secureTextEntry autoCapitalize="none" />
-      <Field label="New password" value={next} onChangeText={setNext} secureTextEntry autoCapitalize="none" hint="At least 10 characters. This signs out your other devices and disconnects Nextcloud, so reconnect it afterward if you use it." />
+      <Field label="New password" value={next} onChangeText={setNext} secureTextEntry autoCapitalize="none" hint="At least 10 characters. This signs out your other devices, disconnects Nextcloud so you'd reconnect it afterward, and cancels any invite or reset codes you've made and not yet used." />
     </Dialog>
   );
 }

@@ -20,6 +20,8 @@ let dav;
 let davUrl;
 let files;
 let requests;
+// Set by a test to make the stand-in hold its next PROPFIND answer open: { reached, released }.
+let hold = null;
 
 // A tiny server that answers the WebDAV methods the app uses, keeping "files" in a
 // map, and refusing any password except the right one.
@@ -32,9 +34,19 @@ beforeAll(async () => {
       const expected = `Basic ${Buffer.from(`sam:${APP_PASSWORD}`).toString('base64')}`;
       if (req.headers.authorization !== expected) { res.statusCode = 401; res.end(); return; }
       if (req.method === 'PROPFIND') {
-        res.statusCode = 207;
-        const hrefs = [...files.keys()].map((p) => `<d:response><d:href>${p}</d:href></d:response>`).join('');
-        res.end(`<d:multistatus xmlns:d="DAV:">${hrefs}</d:multistatus>`);
+        const answer = () => {
+          res.statusCode = 207;
+          const hrefs = [...files.keys()].map((p) => `<d:response><d:href>${p}</d:href></d:response>`).join('');
+          res.end(`<d:multistatus xmlns:d="DAV:">${hrefs}</d:multistatus>`);
+        };
+        if (hold) {
+          const { reached, released } = hold;
+          hold = null;
+          reached();
+          released.then(answer);
+        } else {
+          answer();
+        }
       } else if (req.method === 'MKCOL') {
         res.statusCode = 201;
         res.end();
@@ -113,6 +125,60 @@ describe('credentials', () => {
     await connect();
     await request(app).delete('/api/nextcloud').set('Authorization', bearer(user.token));
     expect((await pool.query('select count(*)::int as n from nextcloud_links')).rows[0].n).toBe(0);
+  });
+});
+
+describe('a connection request held open across a password change', () => {
+  /**
+   * Sets up the attack: starts connecting Nextcloud, with the stand-in server holding its answer open.
+   * Out: { response, release }. The request is waiting at the server when this returns.
+   */
+  async function holdConnect() {
+    let release;
+    const released = new Promise((resolve) => { release = resolve; });
+    const reached = new Promise((resolve) => { hold = { reached: resolve, released }; });
+    const response = connect().then((res) => res);
+    await reached;
+    return { response, release };
+  }
+
+  // Revocation bypass: the attacker holds the request open, the person resets their password, then the
+  // attacker lets it finish. It must not bring back the link the reset removed.
+  test('a reset wins, and the link is not saved', async () => {
+    const { response, release } = await holdConnect();
+    const code = await auth.createResetCode(user.id, null);
+    expect((await request(app).post('/api/auth/reset').send({ code, password: 'a-brand-new-password' })).status).toBe(200);
+    release();
+    expect((await response).status).toBe(401);
+    expect((await pool.query('select count(*)::int as n from nextcloud_links')).rows[0].n).toBe(0);
+  });
+
+  // The same attack against a password change made on another device.
+  test('a password change on another device wins too', async () => {
+    const { response, release } = await holdConnect();
+    const owner = await auth.createSession(user.id);
+    await request(app).post('/api/auth/password').set('Authorization', bearer(owner))
+      .send({ currentPassword: PASSWORD, newPassword: 'a-brand-new-password' });
+    release();
+    expect((await response).status).toBe(401);
+    expect((await pool.query('select count(*)::int as n from nextcloud_links')).rows[0].n).toBe(0);
+  });
+
+  // Normal behaviour: with no password change, a slow connection still saves.
+  test('a slow connection with a valid session still saves', async () => {
+    const { response, release } = await holdConnect();
+    release();
+    expect((await response).status).toBe(200);
+  });
+
+  // The time limit: a server that accepts a request and never finishes can't hold it open indefinitely.
+  test('a request that never finishes is ended by the time limit', async () => {
+    const silent = http.createServer(() => {});
+    await new Promise((resolve) => silent.listen(0, '127.0.0.1', resolve));
+    const link = { baseUrl: `http://127.0.0.1:${silent.address().port}`, username: 'sam', password: 'x' };
+    await expect(nextcloud.davRequest(link, 'PROPFIND', '', { deadlineMs: 100 })).rejects.toThrow('took too long');
+    silent.closeAllConnections();
+    await new Promise((resolve) => silent.close(resolve));
   });
 });
 

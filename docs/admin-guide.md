@@ -312,7 +312,11 @@ go further, so be straight with your family about them:
 - **Anyone with access to the server or its backups can read the database.**
 
 Disabling, demoting or deleting an admin cancels the unused codes they created, so a saved code can't be used
-to get back in. Codes made in the terminal panel belong to no account, so they last until they're used or expire.
+to get back in. So does that admin changing their password, or using a reset code. Invite codes made in the terminal
+panel belong to no account, so they last until they're used or expire.
+
+**After a suspected break-in on an admin account,** change its password, then check Family accounts for anyone you
+don't recognise. A code that was already used can't be undone this way: its account has to be disabled or deleted.
 
 ## 7. Build the Android app
 
@@ -337,7 +341,7 @@ pushed first.
 **To build a released version:**
 
 ```bash
-npm run build:android -- --ref v1.0.2
+npm run build:android -- --ref v1.0.3
 ```
 
 A release build must be an approved version tag: anything else is refused. Use `--debug` for a test build.
