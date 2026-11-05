@@ -56,6 +56,7 @@ export default function NextcloudScreen() {
           {link?.connected ? (
             <Card>
               <Text style={[styles.strong, { color: colors.text }]}>Connected as {link.username}</Text>
+              <Text style={[styles.text, { color: colors.muted }]}>Your books are sent here. If you don't recognise this, tap Disconnect and change your password.</Text>
               <Text style={[styles.text, { color: colors.muted }]}>{link.baseUrl}</Text>
               <Text style={[styles.text, { color: colors.muted }]}>
                 {link.lastExportAt ? `Last export: ${new Date(link.lastExportAt).toLocaleString()}` : 'No exports yet.'}
@@ -79,7 +80,7 @@ export default function NextcloudScreen() {
                 Save a copy of your library to your own Nextcloud every day, as a JSON file and a spreadsheet-friendly CSV file. The last 7 days are kept, in a folder named Readeez.
               </Text>
               <Text style={[styles.text, { color: colors.muted }]}>
-                In Nextcloud, open Personal settings, then Security, and create an app password. Use that here, not your normal password.
+                In Nextcloud, open Personal settings, then Security, and create an app password. Use that here, not your normal password. Changing your Readeez password disconnects this, so anyone who had access can't keep receiving your books.
               </Text>
               <Field label="Nextcloud address" value={form.baseUrl} onChangeText={(baseUrl) => setForm({ ...form, baseUrl })} placeholder="https://cloud.example.com" autoCapitalize="none" autoCorrect={false} keyboardType="url" />
               <Field label="User name" value={form.username} onChangeText={(username) => setForm({ ...form, username })} autoCapitalize="none" autoCorrect={false} />

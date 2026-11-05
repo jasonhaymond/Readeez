@@ -117,7 +117,7 @@ function createAuthRouter() {
    * POST /api/auth/reset — public. Sets a new password using an admin's reset code.
    * In: { code, password }. Out: { ok: true }.
    * Side effects: uses up the code, which stays on record as used, so the person is shown the time at their
-   * next sign-in. Also changes the password and signs out every device.
+   * next sign-in. Also changes the password, signs out every device, and disconnects Nextcloud (see below).
    */
   router.post('/reset', limiter, async (req, res) => {
     const { code, password } = req.body || {};
@@ -136,6 +136,10 @@ function createAuthRouter() {
       }
       userId = reset.user_id;
       await client.query('update users set password_hash = $1 where id = $2', [hash, userId]);
+      // Whoever had access before this may have pointed the daily export at their own Nextcloud, which
+      // would keep sending this person's books after they lost access. Signing them out alone wouldn't
+      // stop that, so a new password also removes the link and its stored app password.
+      await client.query('delete from nextcloud_links where user_id = $1', [userId]);
       await client.query('commit');
     } catch (err) {
       await client.query('rollback').catch(() => {});
@@ -168,7 +172,9 @@ function createAuthRouter() {
    * POST /api/auth/password — signed-in users; changes their own password.
    * In: { currentPassword, newPassword }. Rate-limited and re-checks the current
    * password, so someone holding an unlocked phone can't take over the account.
-   * Side effects: updates the hash and signs out every other device.
+   * Side effects: updates the hash, signs out every other device, and disconnects Nextcloud, for the same
+   * reason as a reset: changing a password is what someone does after a suspected break-in, and it has to
+   * end that person's access completely. Out: { ok: true, nextcloudDisconnected }.
    */
   router.post('/password', limiter, auth.requireAuth, async (req, res) => {
     const { currentPassword, newPassword } = req.body || {};
@@ -180,7 +186,8 @@ function createAuthRouter() {
     if (problem) return res.status(400).json({ error: problem });
     await pool.query('update users set password_hash = $1 where id = $2', [await auth.hashPassword(newPassword), req.user.id]);
     await auth.deleteSessions(req.user.id, req.token);
-    return res.json({ ok: true });
+    const { rowCount } = await pool.query('delete from nextcloud_links where user_id = $1', [req.user.id]);
+    return res.json({ ok: true, nextcloudDisconnected: rowCount > 0 });
   });
 
   return router;
@@ -190,15 +197,16 @@ function createAuthRouter() {
  * Picks the fields a client may see. Listing them explicitly keeps the password
  * hash out of every response, even if a query selects it.
  * In: a user row, and when reset codes were used on this account (see auth.resetHistory).
- * Out: { id, email, displayName, role, adminResets }.
+ * Out: { id, email, displayName, role, adminResets, adminResetsEarlier }.
  */
-function publicUser(user, adminResets = []) {
+function publicUser(user, history = { recent: [], earlier: 0 }) {
   return {
     id: user.id,
     email: user.email,
     displayName: user.display_name,
     role: user.role,
-    adminResets,
+    adminResets: history.recent,
+    adminResetsEarlier: history.earlier,
   };
 }
 

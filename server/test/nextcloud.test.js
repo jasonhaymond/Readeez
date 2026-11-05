@@ -10,7 +10,8 @@ const pool = require('../db');
 const { createApp } = require('../app');
 const { encrypt, decrypt } = require('../secrets');
 const nextcloud = require('../nextcloud');
-const { resetDb, createUser, makeBook, bearer } = require('./helpers');
+const auth = require('../auth');
+const { PASSWORD, resetDb, createUser, makeBook, bearer } = require('./helpers');
 
 const APP_PASSWORD = 'nextcloud-app-password';
 let app;
@@ -112,6 +113,61 @@ describe('credentials', () => {
     await connect();
     await request(app).delete('/api/nextcloud').set('Authorization', bearer(user.token));
     expect((await pool.query('select count(*)::int as n from nextcloud_links')).rows[0].n).toBe(0);
+  });
+});
+
+describe('losing access ends the link', () => {
+  const exportsSent = async () => {
+    files.clear();
+    await pool.query(`update nextcloud_links set last_export_at = null`);
+    await nextcloud.runDueExports();
+    return files.size;
+  };
+
+  // Ongoing leak: someone signed in as this person (an admin who redeemed a reset code, say) points the
+  // daily export at their own Nextcloud. A later reset must stop it, or it would keep sending the person's
+  // books every day with nothing further to notice.
+  test('a password reset removes the link and stops the exports', async () => {
+    await connect();
+    expect(await exportsSent()).toBe(2);
+    const code = await auth.createResetCode(user.id, null);
+    expect((await request(app).post('/api/auth/reset').send({ code, password: 'a-brand-new-password' })).status).toBe(200);
+    expect((await pool.query('select count(*)::int as n from nextcloud_links')).rows[0].n).toBe(0);
+    expect(await exportsSent()).toBe(0);
+  });
+
+  // Same leak: changing a password is the advice after a suspected break-in, so it has to end this too.
+  test('changing your password removes the link and says so', async () => {
+    await connect();
+    const res = await request(app).post('/api/auth/password').set('Authorization', bearer(user.token))
+      .send({ currentPassword: PASSWORD, newPassword: 'a-brand-new-password' });
+    expect(res.body).toEqual({ ok: true, nextcloudDisconnected: true });
+    expect(await exportsSent()).toBe(0);
+  });
+
+  // The stored app password is really gone, not merely unused.
+  test('the stored app password is erased', async () => {
+    await connect();
+    await request(app).post('/api/auth/password').set('Authorization', bearer(user.token))
+      .send({ currentPassword: PASSWORD, newPassword: 'a-brand-new-password' });
+    expect((await pool.query('select app_password_enc from nextcloud_links')).rows).toEqual([]);
+  });
+
+  // A wrong current password changes nothing, or an attacker could disconnect someone's backups.
+  test('a refused password change leaves the link alone', async () => {
+    await connect();
+    await request(app).post('/api/auth/password').set('Authorization', bearer(user.token))
+      .send({ currentPassword: 'wrong-password-here', newPassword: 'a-brand-new-password' });
+    expect((await pool.query('select count(*)::int as n from nextcloud_links')).rows[0].n).toBe(1);
+  });
+
+  // One person's password change doesn't touch anyone else's link.
+  test('another person\'s link is untouched', async () => {
+    await connect();
+    const other = await createUser();
+    await request(app).post('/api/auth/password').set('Authorization', bearer(other.token))
+      .send({ currentPassword: PASSWORD, newPassword: 'a-brand-new-password' });
+    expect((await pool.query('select count(*)::int as n from nextcloud_links')).rows[0].n).toBe(1);
   });
 });
 

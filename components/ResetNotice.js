@@ -1,7 +1,7 @@
 // components/ResetNotice.js
 // Tells someone when reset codes were used on their account. Those codes come from an admin, who could use
-// one to sign in as them, so this is how they'd find out. Every date is listed, not just the newest, so a
-// second "here's a code to fix it" can't hide a first. It reappears whenever there's a newer reset than
+// one to sign in as them, so this is how they'd find out. The newest 20 dates are listed, with a count of any
+// older ones, so a second "here's a code to fix it" can't hide a first. It reappears whenever there's a newer reset than
 // this phone has shown, and after signing out and back in. The dates also stay in Settings. Dismissing it only
 // remembers that on this phone, and the record itself lives on the server, where nothing in the app clears it.
 
@@ -26,12 +26,13 @@ export default function ResetNotice() {
     });
   }, [newest, seenKey]);
 
-  const dates = resets.map((at) => new Date(at).toLocaleString()).join('\n');
+  const earlier = user?.adminResetsEarlier || 0;
+  const dates = resets.map((at) => new Date(at).toLocaleString()).join('\n') + (earlier ? `\nand ${earlier} earlier` : '');
   return (
     <Dialog
       visible={visible}
       title="Password reset codes were used"
-      message={`A reset code from your admin set your password on:\n\n${dates}\n\nWhoever used a code could sign in as you and see your books. If you did each of these yourself, there's nothing to do. If not, change your password in Settings and talk to your admin.`}
+      message={`A reset code from your admin set your password on:\n\n${dates}\n\nWhoever used a code could sign in as you and see your books. A reset also disconnects Nextcloud, so reconnect yours in Settings if you use it. If you did each of these yourself, there's nothing more to do. If not, change your password in Settings and talk to your admin.`}
       confirmLabel="OK"
       onConfirm={() => {
         setVisible(false);

@@ -14,6 +14,7 @@ const BCRYPT_ROUNDS = process.env.NODE_ENV === 'test' ? 4 : 12;
 const SESSION_DAYS = 90;
 const INVITE_DAYS = 7;
 const RESET_HOURS = 24;
+const RESET_HISTORY_SHOWN = 20;
 const MIN_PASSWORD = 10;
 // bcrypt ignores everything past 72 bytes. Refusing longer passwords means two
 // different long passwords can't both open the same account.
@@ -201,14 +202,18 @@ async function redeemCode(client, code, kind) {
  * redeem one to sign in as this person, so the person is shown this history. It's read from the used codes
  * themselves, which nothing in the app deletes (only unused codes are ever cancelled), so a later reset can't
  * hide an earlier one, and someone signed in as the person can't clear it.
- * In: the account's id. Out: an array of ISO times, at most the newest 20.
+ * In: the account's id. Out: { recent, earlier }: the newest 20 ISO times, and how many older ones there
+ * are. The count keeps the list honest: burying a visit under more resets leaves it visibly longer.
  */
 async function resetHistory(userId) {
   const { rows } = await pool.query(
-    `select used_at from access_codes where kind = 'reset' and user_id = $1 and used_at is not null order by used_at desc limit 20`,
+    `select used_at from access_codes where kind = 'reset' and user_id = $1 and used_at is not null order by used_at desc`,
     [userId]
   );
-  return rows.map((row) => row.used_at.toISOString());
+  return {
+    recent: rows.slice(0, RESET_HISTORY_SHOWN).map((row) => row.used_at.toISOString()),
+    earlier: Math.max(rows.length - RESET_HISTORY_SHOWN, 0),
+  };
 }
 
 module.exports = {

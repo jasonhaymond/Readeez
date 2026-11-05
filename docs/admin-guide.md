@@ -306,8 +306,9 @@ Admins can see each person's email and book count, and no titles or notes in the
 go further, so be straight with your family about them:
 
 - **A reset code signs in as that person.** Whoever redeems one can see that person's books. So redeeming one
-  signs the person out, and at next sign-in they see every date a code was used, which stay in Settings. A later
-  reset can't hide an earlier one, and nothing in the app clears the list. Only issue a code when someone asks.
+  signs the person out and disconnects their Nextcloud, and at next sign-in they see the dates codes were used,
+  which stay in Settings. A later reset can't hide an earlier one. Only deleting the account clears the list,
+  which the terminal panel can do. Only issue a code when someone asks.
 - **Anyone with access to the server or its backups can read the database.**
 
 Disabling, demoting or deleting an admin cancels the unused codes they created, so a saved code can't be used
@@ -336,7 +337,7 @@ pushed first.
 **To build a released version:**
 
 ```bash
-npm run build:android -- --ref v1.0.1
+npm run build:android -- --ref v1.0.2
 ```
 
 A release build must be an approved version tag: anything else is refused. Use `--debug` for a test build.
@@ -415,7 +416,8 @@ practice, because each phone also holds a copy of its owner's library. A restore
 **Personal exports** are separate. Each person can connect their own Nextcloud under Settings, then
 **Nextcloud**, for a daily JSON and CSV copy in `Readeez/<their email>/`, keeping 7 days. Those are for
 the person's own records. To bring one back: Settings, then **Import a JSON export**. Books edited more
-recently are left alone, and deleted books come back.
+recently are left alone, and deleted books come back. Changing a password or using a reset code disconnects
+that person's Nextcloud, so anyone who had access can't keep receiving their books. They reconnect it in Settings.
 
 **A private-network Nextcloud** for personal exports must be listed in
 `NEXTCLOUD_ALLOWED_PRIVATE_HOSTS`, otherwise it's refused, so accounts can't use this server to reach

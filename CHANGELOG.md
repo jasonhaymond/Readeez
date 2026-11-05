@@ -6,17 +6,30 @@ All notable changes to Readeez are recorded here. The format follows
 
 [Back to the README](README.md)
 
-## [1.0.1] - 2026-11-04
+## [1.0.2] - 2026-11-04
 
-The first release to be deployed. 1.0.0 was pushed, but never tagged or deployed.
+The first release to be deployed. 1.0.0 and 1.0.1 were pushed, but never tagged or deployed.
+
+### Security
+
+- A password reset or password change now disconnects Nextcloud and erases its stored app password. Before
+  this, someone who briefly had access to an account could point its daily export at their own Nextcloud, and
+  keep receiving the person's books after losing access.
+- The reset history now counts uses past the newest 20, so the list can't quietly lose older ones.
+
+### Schema
+
+- No changes.
+
+## [1.0.1] - 2026-11-04
 
 ### Security
 
 - A removed admin can no longer get back in with a saved code: disabling, demoting or deleting an admin
   cancels the unused invite and reset codes they created.
 - Corrected the privacy wording. Admins don't see anyone's books in the app, but one could sign in as
-  someone by using a password reset code on their account. The person now sees every date a code was used, at
-  next sign-in and in Settings. A later reset can't hide an earlier one, and nothing in the app clears the list.
+  someone by using a password reset code on their account. The person now sees the dates codes were used, at
+  next sign-in and in Settings. A later reset can't hide an earlier one, and only deleting the account clears the list.
 - Android release builds must now be an approved version tag, the same check the server's updates make.
 - Control characters are removed from names and refused in emails, so an account can't rewrite what an admin
   sees in the terminal panel.

@@ -277,6 +277,20 @@ describe('the admin reset history', () => {
     expect(me.body.user.adminResets).toEqual([]);
   });
 
+  // Burying a visit: past the newest 20, older uses are still counted, so the list can't quietly shrink.
+  test('older uses past the list limit are still counted', async () => {
+    const user = await createUser({ email: 'sam@example.com' });
+    for (let i = 0; i < 22; i += 1) {
+      await pool.query(
+        `insert into access_codes (code_hash, kind, user_id, expires_at, used_at) values ($1, 'reset', $2, now() + interval '1 day', now() - make_interval(hours => $3))`,
+        [`hash-${i}`, user.id, i]
+      );
+    }
+    const me = await request(app).get('/api/auth/me').set('Authorization', bearer(user.token));
+    expect(me.body.user.adminResets).toHaveLength(20);
+    expect(me.body.user.adminResetsEarlier).toBe(2);
+  });
+
   // Privacy: this history is only ever given to the person it's about.
   test('one person cannot see another person\'s history', async () => {
     const user = await createUser({ email: 'sam@example.com' });

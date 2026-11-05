@@ -166,7 +166,7 @@ export default function SettingsScreen() {
           <Text style={[styles.name, { color: colors.text }]}>{user?.displayName}</Text>
           <Text style={[styles.body, { color: colors.muted }]}>{user?.email}</Text>
           {user?.adminResets?.length ? (
-            <Text style={[styles.body, { color: colors.muted }]}>Reset codes used on this account: {user.adminResets.map((at) => new Date(at).toLocaleString()).join(', ')}</Text>
+            <Text style={[styles.body, { color: colors.muted }]}>Reset codes used on this account: {user.adminResets.map((at) => new Date(at).toLocaleString()).join(', ')}{user.adminResetsEarlier ? `, and ${user.adminResetsEarlier} earlier` : ''}</Text>
           ) : null}
           <Button label="Change password" kind="secondary" onPress={() => setPasswordOpen(true)} style={styles.gap} />
           <Button label="Sign out" kind="secondary" onPress={() => setConfirmSignOut(true)} />
@@ -235,7 +235,7 @@ function ChangePasswordDialog({ visible, onClose }) {
     <Dialog visible={visible} title="Change password" confirmLabel="Change" busy={busy} onConfirm={submit} onCancel={close}>
       <Message text={error} />
       <Field label="Current password" value={current} onChangeText={setCurrent} secureTextEntry autoCapitalize="none" />
-      <Field label="New password" value={next} onChangeText={setNext} secureTextEntry autoCapitalize="none" hint="At least 10 characters. This signs out your other devices." />
+      <Field label="New password" value={next} onChangeText={setNext} secureTextEntry autoCapitalize="none" hint="At least 10 characters. This signs out your other devices and disconnects Nextcloud, so reconnect it afterward if you use it." />
     </Dialog>
   );
 }
