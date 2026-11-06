@@ -7,7 +7,7 @@ export default defineConfig({
   test: {
     environment: 'node',
     globals: true,
-    include: ['test/**/*.test.js'],
+    include: ['test/**/*.test.js', 'test/**/*.test.mjs'],
     // A stray .only would quietly skip every other test, so it's an error.
     allowOnly: false,
   },

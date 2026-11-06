@@ -97,6 +97,7 @@ You need Node 24 and Docker.
 npm test                  # app logic, no services needed
 cd server && npm test     # server and security tests, against a real Postgres in Docker
 npm run security          # the full security gate (needs Docker and gitleaks)
+npm run security -- --commit   # the same, for approving a commit: fails on uncommitted files
 ```
 
 Every release passes `npm run security` with its results reviewed and approved. The approval is

@@ -324,7 +324,8 @@ appears. That person is told instead: the app shows them a notice, and the dates
 
 1. Disable the account. This ends their sessions at once.
 2. Issue the reset code.
-3. Have the account's owner use the code. A disabled account can still do this.
+3. Have the account's owner use the code. A disabled account can still do this. The app then says to sign in, but
+   signing in fails until step 4, so tell them to expect that.
 4. Enable the account.
 
 Don't enable it before the code is used. Whoever is in the account could sign in again with the current password

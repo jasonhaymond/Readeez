@@ -33,6 +33,8 @@ export function BooksProvider({ children }) {
   const running = useRef(false);
   const again = useRef(false);
   const timer = useRef(null);
+  // True once this account's books have loaded from the phone.
+  const loaded = useRef(false);
 
   /** Replaces the given books in the in-memory list and updates the screens. */
   const applyBooks = useCallback((changed) => {
@@ -46,9 +48,13 @@ export function BooksProvider({ children }) {
    * Runs a sync. If one is already underway, another follows it, so an edit made during
    * a sync isn't left waiting. A failure just updates the status: the books are safe on
    * the phone and go up on a later try.
+   *
+   * Nothing runs until the books have loaded, however it was triggered. A sync started during loading would compare
+   * against an empty list, and could save a sync position just after loading cleared it to fetch an unreadable book
+   * again, leaving that book missing. Loading runs a sync itself when it finishes, so nothing is missed.
    */
   const syncNow = useCallback(async () => {
-    if (!userId) return;
+    if (!userId || !loaded.current) return;
     if (running.current) { again.current = true; return; }
     running.current = true;
     setSync((s) => ({ ...s, state: 'syncing', message: null }));
@@ -89,6 +95,7 @@ export function BooksProvider({ children }) {
   useEffect(() => {
     let cancelled = false;
     setReady(false);
+    loaded.current = false;
     booksRef.current = [];
     setAllBooks([]);
     if (!userId) return undefined;
@@ -97,6 +104,7 @@ export function BooksProvider({ children }) {
       booksRef.current = books;
       setAllBooks(books);
       setReady(true);
+      loaded.current = true;
       syncNow();
     });
     return () => {

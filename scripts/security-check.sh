@@ -7,6 +7,7 @@
 #
 # Usage:
 #   npm run security                                   # the full pre-release gate
+#   npm run security -- --commit                       # the same, for approving a commit: fails on uncommitted files
 #   scripts/security-check.sh --live https://your.url  # post-deploy checks of a live server
 #
 # Exit code: 0 if nothing failed, 1 if anything failed or didn't run, 2 for bad usage.
@@ -25,10 +26,12 @@ SEMGREP_IMAGE="semgrep/semgrep:1.180.0"
 SHELLCHECK_IMAGE="koalaman/shellcheck-alpine:v0.11.0"
 
 LIVE_URL=""
+REQUIRE_CLEAN=0
 case "${1:-}" in
+  --commit) REQUIRE_CLEAN=1 ;;
   --live) LIVE_URL="${2:-}"; [ -n "$LIVE_URL" ] || { echo "--live needs a URL" >&2; exit 2; } ;;
   "") ;;
-  *) echo "Usage: security-check.sh [--live URL]" >&2; exit 2 ;;
+  *) echo "Usage: security-check.sh [--commit | --live URL]" >&2; exit 2 ;;
 esac
 
 TMP="$(mktemp -d)"
@@ -152,6 +155,17 @@ HEADER="Version $VERSION · commit $COMMIT · $(date '+%Y-%m-%d %H:%M %Z')"
 echo "Security gate for Readeez v$VERSION ($COMMIT)"
 DOCKER_OK=0
 if docker info > /dev/null 2>&1; then DOCKER_OK=1; fi
+
+# Every check below reads the files on disk. Uncommitted changes would make its results describe something other than
+# the commit in the report, and an approval is tied to that commit. Only checked with --commit, so the gate can still be
+# run on work in progress before committing.
+if [ "$REQUIRE_CLEAN" = 1 ]; then
+  if [ -z "$(git status --porcelain)" ]; then
+    record "Results match the commit" PASS "no uncommitted files"
+  else
+    record "Results match the commit" FAIL "$(git status --porcelain | wc -l | tr -d ' ') uncommitted files: results don't describe $COMMIT"
+  fi
+fi
 
 # 0. The version number must match everywhere it appears.
 SV="$(node -p "require('./server/package.json').version")"

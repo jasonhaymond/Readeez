@@ -462,12 +462,12 @@ describe('database locks when codes and passwords overlap', () => {
     }
   });
 
-  // The deadlocks ordering can't rule out: the caller gets a clear retry message rather than a server error, and
-  // because everything rolled back, the code still works on the retry.
-  test('a deadlock asks the caller to retry, and the code still works', async () => {
+  // The deadlocks ordering can't rule out: the caller gets a clear retry message rather than a server error. The
+  // failure comes after the code is marked used, so the retry only works if that was really rolled back.
+  test('a deadlock asks the caller to retry, and everything rolls back', async () => {
     const user = await createUser({ email: 'sam@example.com' });
     const code = await auth.createResetCode(user.id, null);
-    const spy = vi.spyOn(auth, 'redeemCode').mockRejectedValueOnce(Object.assign(new Error('deadlock detected'), { code: '40P01' }));
+    const spy = vi.spyOn(auth, 'applyNewPassword').mockRejectedValueOnce(Object.assign(new Error('deadlock detected'), { code: '40P01' }));
     const first = await request(app).post('/api/auth/reset').send({ code, password: 'the-persons-new-password' });
     spy.mockRestore();
     expect(first.status).toBe(503);
@@ -475,15 +475,52 @@ describe('database locks when codes and passwords overlap', () => {
     expect((await request(app).post('/api/auth/reset').send({ code, password: 'the-persons-new-password' })).status).toBe(200);
   });
 
-  // The real crossing: two admins redeeming codes each made for the other, at once. Any order is fine, but never a
-  // server error, and no request may leave the accounts half-changed.
-  test('two admins redeeming crossed codes never get a server error', async () => {
-    for (let round = 0; round < 5; round += 1) {
-      const [a, b] = [await createUser({ role: 'admin' }), await createUser({ role: 'admin' })];
-      const [forA, forB] = [await auth.createResetCode(a.id, b.id), await auth.createResetCode(b.id, a.id)];
-      const results = await Promise.all([forA, forB].map((code) => request(app).post('/api/auth/reset').send({ code, password: 'a-brand-new-password' })));
-      results.forEach((r) => expect([200, 400, 503]).toContain(r.status));
+  // A real deadlock, forced: two admins each redeem a code the other made. Each one's cleanup wants the code the other
+  // is holding, so Postgres cancels one. The other must succeed, and the cancelled one must be left entirely unchanged.
+  test('two admins crossing codes: one wins, and the other is untouched', async () => {
+    const [a, b] = [await createUser({ role: 'admin', email: 'a@example.com' }), await createUser({ role: 'admin', email: 'b@example.com' })];
+    const [forA, forB] = [await auth.createResetCode(a.id, b.id), await auth.createResetCode(b.id, a.id)];
+    const hash = await auth.hashPassword('a-brand-new-password');
+    const [ca, cb] = await twoClients();
+    let results;
+    try {
+      await auth.lockResetAccount(ca, forA);
+      await auth.redeemCode(ca, forA, 'reset');
+      await auth.lockResetAccount(cb, forB);
+      await auth.redeemCode(cb, forB, 'reset');
+      results = await Promise.allSettled([auth.applyNewPassword(ca, a.id, hash), auth.applyNewPassword(cb, b.id, hash)]);
+      const lost = results.filter((r) => r.status === 'rejected');
+      expect(lost).toHaveLength(1);
+      expect(lost[0].reason.code).toBe('40P01');
+      await ca.query(results[0].status === 'rejected' ? 'rollback' : 'commit');
+      await cb.query(results[1].status === 'rejected' ? 'rollback' : 'commit');
+    } finally {
+      ca.release();
+      cb.release();
     }
+    const winner = results[0].status === 'fulfilled' ? a : b;
+    const loser = winner === a ? b : a;
+    const login = (user, password) => request(app).post('/api/auth/login').send({ email: user.email, password });
+    expect((await login(winner, 'a-brand-new-password')).status).toBe(200);
+    expect((await login(loser, PASSWORD)).status).toBe(200);
+    // The winner's password change cancelled the code it had made for the loser, so that retry is refused.
+    const loserCode = loser === a ? forA : forB;
+    expect((await request(app).post('/api/auth/reset').send({ code: loserCode, password: 'another-new-password' })).status).toBe(400);
+    expect((await login(loser, PASSWORD)).status).toBe(200);
+  });
+
+  // The admin guide relies on this: the owner of a disabled account can still use a reset code, and an intruder who
+  // knows the old password can't sign in meanwhile. Sign-in only works again once the account is enabled.
+  test('a disabled account can use a reset code, and stays disabled', async () => {
+    await createUser({ role: 'admin' });
+    const user = await createUser({ email: 'sam@example.com' });
+    await accounts.setDisabled(user.id, true);
+    const code = await auth.createResetCode(user.id, null);
+    expect((await request(app).post('/api/auth/reset').send({ code, password: 'the-persons-new-password' })).status).toBe(200);
+    const login = () => request(app).post('/api/auth/login').send({ email: 'sam@example.com', password: 'the-persons-new-password' });
+    expect((await login()).status).toBe(401);
+    await accounts.setDisabled(user.id, false);
+    expect((await login()).status).toBe(200);
   });
 });
 

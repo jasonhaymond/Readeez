@@ -110,8 +110,9 @@ function createApp({ syncLimit = 600 } = {}) {
    *
    * A deadlock (Postgres error 40P01) gets its own answer. It can still happen in rare crossings, such as two admins
    * each using a reset code the other made at the same moment, and ordering locks can't rule those out. Postgres
-   * cancels one request and rolls back all of its work, so nothing is half-done and a code isn't used up. That makes
-   * trying again safe, so the person is told exactly that.
+   * cancels one request and rolls back all of its work, so nothing is half-done, which makes trying again safe. The
+   * retry can still be refused: if the other request finishes and cancels this person's code, as a password change
+   * does for codes that account created, an admin has to issue a new one.
    */
   app.use((err, req, res, next) => {
     if (err.code === '40P01') {

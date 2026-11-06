@@ -48,7 +48,9 @@ The first release to be deployed. Versions 1.0.0 to 1.0.2 were pushed, but never
   import copy no longer fails the import.
 - The admin guide's steps for an account someone else is using now keep the account disabled until the code is used.
 - A database failure while taking back a rate-limit count can no longer stop the server.
-- The security gate now fails if any test is skipped.
+- A sync can no longer start while the library is still loading from the phone.
+- The security gate now fails if any test is skipped, and its new `--commit` mode fails if there are uncommitted
+  files, since its results would then describe something other than the commit being approved.
 
 ### Schema
 

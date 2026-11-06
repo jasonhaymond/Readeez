@@ -1,4 +1,4 @@
-// test/bookStore.test.js
+// test/bookStore.test.mjs
 // Tests what the phone's book storage does with books it can't decrypt. Storage and encryption are replaced with
 // simple stand-ins, because both are Android features that don't exist here. "BAD" stands for a value that won't open.
 
