@@ -237,6 +237,18 @@ async function createResetCode(userId, createdBy, db = pool) {
 }
 
 /**
+ * Locks the account a reset code belongs to, before that code is redeemed. A password change locks the account and
+ * then its codes, so a reset has to take them in the same order. In the opposite order, the two can each wait on
+ * the other until Postgres cancels one, and someone resetting their password would see an error.
+ * In: a database client inside a transaction, and the typed code. Side effects: holds the account's row until the
+ * transaction ends. An unknown code locks nothing, and redeemCode then refuses it.
+ */
+async function lockResetAccount(client, code) {
+  const { rows } = await client.query(`select user_id from access_codes where code_hash = $1 and kind = 'reset'`, [hashCode(code)]);
+  if (rows[0]) await client.query('select 1 from users where id = $1 for update', [rows[0].user_id]);
+}
+
+/**
  * Uses up a one-time code.
  * In: a database client (so it joins the caller's transaction), the typed code and
  * the kind expected. Out: the code's row, or null if it's wrong, expired or used.
@@ -286,6 +298,7 @@ async function adminStillValid(client, userId, token) {
 }
 
 module.exports = {
+  lockResetAccount,
   applyNewPassword,
   sessionStillValid,
   adminStillValid,

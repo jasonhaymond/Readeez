@@ -318,6 +318,9 @@ panel belong to no account, so they last until they're used or expire.
 **After a suspected break-in on an admin account,** change its password, then check Family accounts for anyone you
 don't recognise. A code that was already used can't be undone this way: its account has to be disabled or deleted.
 
+**If someone is actively in an account,** disable it first, then issue the reset code, then enable it. Disabling ends
+their sessions at once. Otherwise they could keep changing the password, and each change cancels your unused code.
+
 ## 7. Build the Android app
 
 Builds run on your self-hosted build server, which clones from GitHub, so what's built must be

@@ -5,7 +5,7 @@
 // stays out of the way, tucked behind a link for the rare case it needs changing.
 
 import React, { useState } from 'react';
-import { KeyboardAvoidingView, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Image, KeyboardAvoidingView, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Background from '../components/Background';
 import { Button, Field, Message } from '../components/ui';
@@ -68,6 +68,8 @@ export default function SignInScreen() {
     <Background>
       <KeyboardAvoidingView behavior="padding" style={styles.fill}>
         <ScrollView contentContainerStyle={[styles.content, { paddingTop: insets.top + 40, paddingBottom: insets.bottom + 24 }]} keyboardShouldPersistTaps="handled">
+          {/* The name directly below says what this is, so screen readers skip the picture. */}
+          <Image source={require('../assets/logo-mark.png')} style={styles.logo} accessible={false} />
           <Text style={[styles.brand, { color: colors.accent }]} accessibilityRole="header">Readeez</Text>
           <Text style={[styles.heading, { color: colors.text }]}>{TITLES[mode]}</Text>
           <Message text={error} />
@@ -118,6 +120,7 @@ function TextLink({ label, onPress }) {
 const styles = StyleSheet.create({
   fill: { flex: 1 },
   content: { paddingHorizontal: 24, flexGrow: 1, maxWidth: 480, width: '100%', alignSelf: 'center' },
+  logo: { width: 72, height: 72, marginBottom: 12 },
   brand: { fontSize: 34, fontWeight: '800', marginBottom: 6 },
   heading: { fontSize: 20, fontWeight: '600', marginBottom: 20 },
   links: { marginTop: 14, alignItems: 'center' },

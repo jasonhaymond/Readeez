@@ -4,7 +4,7 @@
 // wherever the person is. The ⋮ menu leads to Stats and Settings.
 
 import React, { useState } from 'react';
-import { Modal, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Image, Modal, Pressable, StyleSheet, Text, View } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Ionicons from '@expo/vector-icons/Ionicons';
@@ -25,10 +25,11 @@ function HeaderButton({ icon, label, onPress, color }) {
 
 /**
  * The screen frame.
- * In: title, `back` (shows a back arrow instead of the app's name style), children.
+ * In: title, `back` (shows a back arrow instead of the app's name style), `logo` (shows the app's logo beside
+ * the title, for the home screen), children.
  * Out: the laid-out screen. Tapping + or search goes to those screens from anywhere.
  */
-export default function Screen({ title, back = false, children }) {
+export default function Screen({ title, back = false, logo = false, children }) {
   const navigation = useNavigation();
   const insets = useSafeAreaInsets();
   const { colors } = useTheme();
@@ -46,7 +47,9 @@ export default function Screen({ title, back = false, children }) {
         {back ? (
           <HeaderButton icon="arrow-back" label="Back" color={colors.text} onPress={() => navigation.goBack()} />
         ) : null}
-        <Text style={[styles.title, { color: colors.text, marginLeft: back ? 0 : 12 }]} numberOfLines={1} accessibilityRole="header">
+        {/* The title beside it already says the app's name, so screen readers skip the picture. */}
+        {logo ? <Image source={require('../assets/logo-mark.png')} style={styles.logo} accessible={false} /> : null}
+        <Text style={[styles.title, { color: colors.text, marginLeft: back ? 0 : logo ? 8 : 12 }]} numberOfLines={1} accessibilityRole="header">
           {title}
         </Text>
         <HeaderButton icon="search" label="Search all books" color={colors.text} onPress={() => navigation.navigate('Search')} />
@@ -83,6 +86,7 @@ function MenuItem({ icon, label, colors, onPress }) {
 const styles = StyleSheet.create({
   header: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 4, paddingBottom: 4 },
   headerButton: { width: 48, height: 48, alignItems: 'center', justifyContent: 'center' },
+  logo: { width: 30, height: 30, marginLeft: 12 },
   title: { flex: 1, fontSize: 21, fontWeight: '700' },
   body: { flex: 1 },
   menuBackdrop: { flex: 1 },

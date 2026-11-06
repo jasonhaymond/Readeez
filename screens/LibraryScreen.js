@@ -39,7 +39,7 @@ export default function LibraryScreen() {
     : null;
 
   return (
-    <Screen title="Readeez">
+    <Screen title="Readeez" logo>
       <View style={styles.filterBar}>
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chips} keyboardShouldPersistTaps="handled">
           <Chip label={activeFilters ? `Filter (${activeFilters})` : 'Filter'} icon="options-outline" selected={activeFilters > 0} onPress={() => setFilterOpen(true)} />

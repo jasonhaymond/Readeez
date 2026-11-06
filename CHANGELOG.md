@@ -27,9 +27,23 @@ The first release to be deployed. Versions 1.0.0 to 1.0.2 were pushed, but never
 - Cleared every `npm audit` finding: forced fixed versions of `glob` and `minimatch`, and moved the tests from Jest to
   Vitest, because Jest depends on `deepmerge`, which has no fixed release.
 
+### Added
+
+- The app's logo, an open book with a gold ribbon: on the launcher (including Android's themed icons), the splash
+  screen, the sign-in and Library screens, the browser tab and the README. One master drawing, `assets/logo.svg`,
+  generates every icon through `scripts/make-icons.mjs`.
+
 ### Changed
 
 - A smaller APK: 64-bit ARM only with code and resource shrinking, and only the one icon font the app uses.
+
+### Fixed
+
+- A password reset and a password change at the same moment could deadlock and fail with a server error. They now
+  take their locks in the same order.
+- A local book that can't be decrypted is kept rather than deleted, and the copy of an import file is deleted after reading.
+- A database failure while taking back a rate-limit count can no longer stop the server.
+- The security gate now fails if any test is skipped.
 
 ### Schema
 

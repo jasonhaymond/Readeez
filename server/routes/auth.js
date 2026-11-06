@@ -135,6 +135,7 @@ function createAuthRouter() {
     let userId;
     try {
       await client.query('begin');
+      await auth.lockResetAccount(client, code);
       const reset = await auth.redeemCode(client, code, 'reset');
       if (!reset) {
         await client.query('rollback');

@@ -42,8 +42,11 @@ describe('sign-in limits', () => {
     for (let i = 0; i < 12; i += 1) {
       expect((await request(app).post('/api/auth/login').send({ email: 'sam@example.com', password: PASSWORD })).status).toBe(200);
     }
-    const { rows } = await pool.query('select hits from rate_limits');
-    expect(rows[0].hits).toBe(0);
+    // The limiter takes the count back just after each response is sent, so this allows a moment for the last one.
+    await vi.waitFor(async () => {
+      const { rows } = await pool.query('select hits from rate_limits');
+      expect(rows[0].hits).toBe(0);
+    });
   });
 
   // Availability: a database failure while taking back a count must not reach the caller, where it would be

@@ -12,7 +12,7 @@
       "allowBackup": false,
       "versionCode": 10003,
       "adaptiveIcon": {
-        "backgroundColor": "#9A5B13",
+        "backgroundImage": "./assets/android-icon-background.png",
         "foregroundImage": "./assets/android-icon-foreground.png",
         "monochromeImage": "./assets/android-icon-monochrome.png"
       }
@@ -34,7 +34,7 @@
           "resizeMode": "contain",
           "backgroundColor": "#F8F4EC",
           "dark": {
-            "image": "./assets/splash-icon.png",
+            "image": "./assets/splash-icon-dark.png",
             "backgroundColor": "#1B1815"
           }
         }

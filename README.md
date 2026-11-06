@@ -1,3 +1,5 @@
+<img src="assets/logo.svg" alt="The Readeez logo: an open book with a gold ribbon" width="96">
+
 # Readeez
 
 A simple book tracker for a family. Log what you've read with its authors, categories, status,
