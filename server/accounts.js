@@ -39,12 +39,13 @@ function cancelCodesFrom(client, id) {
  * Side effects: whatever the change does. The admin rows stay locked until the transaction ends,
  * so two simultaneous changes can't each remove "the other" admin and leave none.
  * Throws an AccountError if the account doesn't exist or is the last working admin.
+ * The admins are locked in id order, so two of these running together can't deadlock each other.
  */
 async function changeGuardingLastAdmin(id, change) {
   const client = await pool.connect();
   try {
     await client.query('begin');
-    const { rows: admins } = await client.query(`select id from users where role = 'admin' and disabled_at is null for update`);
+    const { rows: admins } = await client.query(`select id from users where role = 'admin' and disabled_at is null order by id for update`);
     const { rows: [target] } = await client.query('select id from users where id = $1', [id]);
     if (!target) throw new AccountError('No such account.');
     if (admins.length === 1 && admins[0].id === id) {

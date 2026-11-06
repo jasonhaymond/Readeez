@@ -40,7 +40,7 @@ create table access_codes (
   role       text check (role in ('admin', 'member')),
   -- The account a reset applies to. Empty for an invite.
   user_id    uuid references users(id) on delete cascade,
-  -- Empty only for the first admin's code, made on the server's command line.
+  -- Empty for codes made on the server's command line, and once the creator's account is deleted.
   created_by uuid references users(id) on delete set null,
   expires_at timestamptz not null,
   -- Set the moment the code is redeemed, which is what makes it single-use.

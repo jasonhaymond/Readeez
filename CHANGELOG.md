@@ -40,8 +40,13 @@ The first release to be deployed. Versions 1.0.0 to 1.0.2 were pushed, but never
 ### Fixed
 
 - A password reset and a password change at the same moment could deadlock and fail with a server error. They now
-  take their locks in the same order.
-- A local book that can't be decrypted is kept rather than deleted, and the copy of an import file is deleted after reading.
+  take their locks in the same order, as does issuing a reset code. A rare deadlock that ordering can't rule out, such
+  as two admins using each other's codes at once, now rolls back and asks the person to try again.
+- A reset code issued while a password change was waiting could survive that change. It's now cancelled.
+- A local book that can't be decrypted is kept rather than deleted, and the copy of an import file is deleted after
+  reading. A book that stays unreadable no longer re-downloads the library at every launch, and failing to delete the
+  import copy no longer fails the import.
+- The admin guide's steps for an account someone else is using now keep the account disabled until the code is used.
 - A database failure while taking back a rate-limit count can no longer stop the server.
 - The security gate now fails if any test is skipped.
 

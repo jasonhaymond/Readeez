@@ -107,8 +107,17 @@ function createApp({ syncLimit = 600 } = {}) {
    * their 4xx status. Everything else is logged here and answered with a generic 500,
    * so stack traces and SQL errors never reach a client. Express identifies this as an
    * error handler because it takes four parameters, so `next` must stay in the list.
+   *
+   * A deadlock (Postgres error 40P01) gets its own answer. It can still happen in rare crossings, such as two admins
+   * each using a reset code the other made at the same moment, and ordering locks can't rule those out. Postgres
+   * cancels one request and rolls back all of its work, so nothing is half-done and a code isn't used up. That makes
+   * trying again safe, so the person is told exactly that.
    */
   app.use((err, req, res, next) => {
+    if (err.code === '40P01') {
+      log.warn(`${req.method} ${req.originalUrl.split('?')[0]}: cancelled by a deadlock, asked the caller to retry`);
+      return res.status(503).json({ error: 'The server was busy. Please try again.' });
+    }
     const status = err.status >= 400 && err.status < 500 ? err.status : 500;
     if (status === 500) log.error(`${req.method} ${req.originalUrl.split('?')[0]}: ${err.message}`);
     res.status(status).json({ error: status === 500 ? 'Something went wrong on the server.' : 'That request wasn\'t valid.' });

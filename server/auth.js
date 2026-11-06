@@ -224,9 +224,15 @@ async function createInvite(role, createdBy, db = pool) {
  * database client to join a transaction. Out: the plain code, shown only once.
  * Side effects: cancels any earlier unused reset codes for that account, and
  * inserts a new one that expires in 24 hours.
+ *
+ * It locks the account first, for two reasons. A password change in progress finishes first, so that change can't
+ * miss this code and leave it working afterward. And a reset in progress finishes first, because that reset holds
+ * the account and wants a code this would otherwise be holding, which is a deadlock. Inside a transaction the lock
+ * lasts until commit. On the terminal panel's plain connection it only waits for whatever is in progress.
  */
 async function createResetCode(userId, createdBy, db = pool) {
   const code = generateCode();
+  await db.query('select 1 from users where id = $1 for share', [userId]);
   await db.query(`delete from access_codes where kind = 'reset' and user_id = $1 and used_at is null`, [userId]);
   await db.query(
     `insert into access_codes (code_hash, kind, user_id, created_by, expires_at)
@@ -242,10 +248,12 @@ async function createResetCode(userId, createdBy, db = pool) {
  * the other until Postgres cancels one, and someone resetting their password would see an error.
  * In: a database client inside a transaction, and the typed code. Side effects: holds the account's row until the
  * transaction ends. An unknown code locks nothing, and redeemCode then refuses it.
+ * "for no key update" is the same strength the password update itself uses. It's enough to queue with password
+ * changes, and unlike plain "for update" it doesn't block other tables' rows from referring to this account.
  */
 async function lockResetAccount(client, code) {
   const { rows } = await client.query(`select user_id from access_codes where code_hash = $1 and kind = 'reset'`, [hashCode(code)]);
-  if (rows[0]) await client.query('select 1 from users where id = $1 for update', [rows[0].user_id]);
+  if (rows[0]) await client.query('select 1 from users where id = $1 for no key update', [rows[0].user_id]);
 }
 
 /**

@@ -317,9 +317,21 @@ panel belong to no account, so they last until they're used or expire.
 
 **After a suspected break-in on an admin account,** change its password, then check Family accounts for anyone you
 don't recognise. A code that was already used can't be undone this way: its account has to be disabled or deleted.
+Family accounts won't show a reset code that was used on someone who already has an account, because no new person
+appears. That person is told instead: the app shows them a notice, and the dates stay in their Settings.
 
-**If someone is actively in an account,** disable it first, then issue the reset code, then enable it. Disabling ends
-their sessions at once. Otherwise they could keep changing the password, and each change cancels your unused code.
+**If someone is actively in an account,** take these steps in this order:
+
+1. Disable the account. This ends their sessions at once.
+2. Issue the reset code.
+3. Have the account's owner use the code. A disabled account can still do this.
+4. Enable the account.
+
+Don't enable it before the code is used. Whoever is in the account could sign in again with the current password
+and change it, and each change cancels your unused code.
+
+This doesn't work for the only working admin, because the last working admin can't be disabled. Make someone else an
+admin first, or use the code straight away from the terminal panel (`server/admin.sh`).
 
 ## 7. Build the Android app
 

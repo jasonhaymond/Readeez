@@ -379,6 +379,114 @@ describe('a password change overlapping a newer one', () => {
   });
 });
 
+describe('database locks when codes and passwords overlap', () => {
+  // Runs a step that should block, and waits until Postgres shows it blocked, so these tests force the exact timing
+  // rather than hoping a race lands on it.
+  const blocked = async (start) => {
+    const step = start();
+    await vi.waitFor(async () => {
+      const { rows } = await pool.query(`select count(*)::int as n from pg_stat_activity where wait_event_type = 'Lock'`);
+      expect(rows[0].n).toBeGreaterThan(0);
+    });
+    return step;
+  };
+  const twoClients = async () => {
+    const [a, b] = [await pool.connect(), await pool.connect()];
+    await a.query('begin');
+    await b.query('begin');
+    return [a, b];
+  };
+  const unused = (id) => pool.query(`select 1 from access_codes where kind = 'reset' and user_id = $1 and used_at is null`, [id]);
+
+  // Availability: an admin re-issues a code at the moment the person redeems the earlier one. These used to be able
+  // to wait on each other until Postgres cancelled one, and the caller saw a server error.
+  test('a reset underway finishes before a new code is issued', async () => {
+    const admin = await createUser({ role: 'admin' });
+    const user = await createUser();
+    const code = await auth.createResetCode(user.id, admin.id);
+    const [reset, mint] = await twoClients();
+    try {
+      await auth.lockResetAccount(reset, code);
+      const minting = await blocked(() => {
+        const step = auth.createResetCode(user.id, admin.id, mint);
+        return { step };
+      });
+      expect(await auth.redeemCode(reset, code, 'reset')).toBeTruthy();
+      await auth.applyNewPassword(reset, user.id, await auth.hashPassword('the-persons-new-password'));
+      await reset.query('commit');
+      await minting.step;
+      await mint.query('commit');
+      expect((await unused(user.id)).rows).toHaveLength(1);
+    } finally {
+      reset.release();
+      mint.release();
+    }
+  });
+
+  // The other order: a new code is being issued first, so the earlier code is cancelled and a reset waiting
+  // on the account must refuse it rather than succeed with a code that no longer exists.
+  test('a reset waiting on a new code refuses the cancelled code', async () => {
+    const admin = await createUser({ role: 'admin' });
+    const user = await createUser();
+    const code = await auth.createResetCode(user.id, admin.id);
+    const [mint, reset] = await twoClients();
+    try {
+      await auth.createResetCode(user.id, admin.id, mint);
+      const locking = await blocked(() => ({ step: auth.lockResetAccount(reset, code) }));
+      await mint.query('commit');
+      await locking.step;
+      expect(await auth.redeemCode(reset, code, 'reset')).toBeNull();
+      await reset.query('rollback');
+    } finally {
+      mint.release();
+      reset.release();
+    }
+  });
+
+  // Surviving access: a code issued just before a password change, still uncommitted, used to be missed by that
+  // change's cleanup. Whoever got the code could then reset the password the person had just changed.
+  test('a password change waiting on a new code still cancels it', async () => {
+    const admin = await createUser({ role: 'admin' });
+    const user = await createUser();
+    const [mint, change] = await twoClients();
+    try {
+      await auth.createResetCode(user.id, admin.id, mint);
+      const changing = await blocked(async () => ({ step: auth.applyNewPassword(change, user.id, 'a-new-hash') }));
+      await mint.query('commit');
+      await changing.step;
+      await change.query('commit');
+      expect((await unused(user.id)).rows).toHaveLength(0);
+    } finally {
+      mint.release();
+      change.release();
+    }
+  });
+
+  // The deadlocks ordering can't rule out: the caller gets a clear retry message rather than a server error, and
+  // because everything rolled back, the code still works on the retry.
+  test('a deadlock asks the caller to retry, and the code still works', async () => {
+    const user = await createUser({ email: 'sam@example.com' });
+    const code = await auth.createResetCode(user.id, null);
+    const spy = vi.spyOn(auth, 'redeemCode').mockRejectedValueOnce(Object.assign(new Error('deadlock detected'), { code: '40P01' }));
+    const first = await request(app).post('/api/auth/reset').send({ code, password: 'the-persons-new-password' });
+    spy.mockRestore();
+    expect(first.status).toBe(503);
+    expect(first.body.error).not.toContain('deadlock');
+    expect((await request(app).post('/api/auth/reset').send({ code, password: 'the-persons-new-password' })).status).toBe(200);
+  });
+
+  // The real crossing: two admins redeeming codes each made for the other, at once. Any order is fine, but never a
+  // server error, and no request may leave the accounts half-changed.
+  test('two admins redeeming crossed codes never get a server error', async () => {
+    for (let round = 0; round < 5; round += 1) {
+      const [a, b] = [await createUser({ role: 'admin' }), await createUser({ role: 'admin' })];
+      const [forA, forB] = [await auth.createResetCode(a.id, b.id), await auth.createResetCode(b.id, a.id)];
+      const results = await Promise.all([forA, forB].map((code) => request(app).post('/api/auth/reset').send({ code, password: 'a-brand-new-password' })));
+      results.forEach((r) => expect([200, 400, 503]).toContain(r.status));
+    }
+  });
+});
+
 describe('unused codes when a password changes', () => {
   const details = { email: 'back@example.com', displayName: 'Back Again', password: PASSWORD };
 
