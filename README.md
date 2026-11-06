@@ -100,7 +100,8 @@ npm run security          # the full security gate (needs Docker and gitleaks)
 npm run security -- --commit   # the same, for approving a commit: fails on uncommitted files
 ```
 
-Every release passes `npm run security` with its results reviewed and approved. The approval is
+Every release passes `npm run security -- --commit` with its results reviewed and approved. The `--` matters: without
+it npm keeps the flag for itself, and the gate runs as a work-in-progress check, and says so. The approval is
 recorded in the version's annotated git tag, and `server/update.sh` refuses any tag without it.
 
 The sanitize check reads private names from a gitignored `.security-private-patterns` file, one

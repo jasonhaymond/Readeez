@@ -5,6 +5,22 @@ const logic = require('../lib/bookLogic');
 
 const book = (fields) => ({ id: 'x', title: 'T', authors: [], categories: [], status: 'finished', rating: null, readDate: null, notes: '', updatedAt: '2026-01-01T00:00:00.000Z', ...fields });
 
+describe('books saved while the library loads', () => {
+  // Data loss: a book saved before loading finishes wasn't in what was read, and must not vanish or miss the next sync.
+  test('a new book survives the load finishing', () => {
+    const merged = logic.mergeLoadedBooks([book({ id: 'old' })], [book({ id: 'new', dirty: true })]);
+    expect(merged.map((b) => b.id).sort()).toEqual(['new', 'old']);
+    expect(merged.find((b) => b.id === 'new').dirty).toBe(true);
+  });
+
+  // An edit made during loading is newer than the stored copy, so the older copy mustn't overwrite it.
+  test('an edit replaces the copy that was read', () => {
+    const merged = logic.mergeLoadedBooks([book({ id: 'a', title: 'Stored' })], [book({ id: 'a', title: 'Edited' })]);
+    expect(merged).toHaveLength(1);
+    expect(merged[0].title).toBe('Edited');
+  });
+});
+
 describe('dates', () => {
   // The default read date must be the local day, not UTC, or an evening entry in the US
   // would be dated tomorrow.

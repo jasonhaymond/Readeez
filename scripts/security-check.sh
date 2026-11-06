@@ -151,20 +151,37 @@ fi
 # ---- Full gate --------------------------------------------------------------------------
 VERSION="$(node -p "require('./package.json').version")"
 COMMIT="$(git rev-parse --short HEAD 2> /dev/null || echo uncommitted)"
-HEADER="Version $VERSION · commit $COMMIT · $(date '+%Y-%m-%d %H:%M %Z')"
+
+# Reports whether the files on disk are exactly the commit named in the report. Every check reads the files on disk, so
+# otherwise its results describe something else. Out: a status (PASS or FAIL), a tab, and the reason. A git error counts
+# as a failure, because an unknown isn't a pass. The commit moving also counts, as another session could commit mid-run.
+tree_state() {
+  local changes head
+  if ! changes="$(git status --porcelain 2> /dev/null)" || ! head="$(git rev-parse --short HEAD 2> /dev/null)"; then
+    printf 'FAIL\tgit could not report the state of this folder\n'
+  elif [ "$head" != "$COMMIT" ]; then
+    printf 'FAIL\tthe commit changed from %s to %s during the run\n' "$COMMIT" "$head"
+  elif [ -n "$changes" ]; then
+    printf 'FAIL\t%s uncommitted files: results do not describe %s\n' "$(wc -l <<< "$changes" | tr -d ' ')" "$COMMIT"
+  else
+    printf 'PASS\tno uncommitted files\n'
+  fi
+}
+
+# Always shown, so a report made in plain mode from a changed folder can't pass for approval of the commit it names.
+START_STATE="$(tree_state)"
+MODE_NOTE=""
+if [ "$REQUIRE_CLEAN" = 0 ]; then
+  MODE_NOTE="work in progress, not approval for a commit: use npm run security -- --commit"
+fi
+HEADER="Version $VERSION · commit $COMMIT · $(date '+%Y-%m-%d %H:%M %Z') · files: ${START_STATE#*$'\t'}${MODE_NOTE:+ · $MODE_NOTE}"
 echo "Security gate for Readeez v$VERSION ($COMMIT)"
 DOCKER_OK=0
 if docker info > /dev/null 2>&1; then DOCKER_OK=1; fi
 
-# Every check below reads the files on disk. Uncommitted changes would make its results describe something other than
-# the commit in the report, and an approval is tied to that commit. Only checked with --commit, so the gate can still be
-# run on work in progress before committing.
+# An approval is tied to a commit. Only enforced with --commit, so the gate can still be run on work in progress.
 if [ "$REQUIRE_CLEAN" = 1 ]; then
-  if [ -z "$(git status --porcelain)" ]; then
-    record "Results match the commit" PASS "no uncommitted files"
-  else
-    record "Results match the commit" FAIL "$(git status --porcelain | wc -l | tr -d ' ') uncommitted files: results don't describe $COMMIT"
-  fi
+  record "Results match the commit" "${START_STATE%%$'\t'*}" "${START_STATE#*$'\t'}"
 fi
 
 # 0. The version number must match everywhere it appears.
@@ -274,6 +291,12 @@ else
   record "App logic tests" FAIL "$(test_summary "$TMP/app-tests.txt")"
 fi
 
+# Checked again at the end, in case something changed while the checks ran.
+if [ "$REQUIRE_CLEAN" = 1 ]; then
+  END_STATE="$(tree_state)"
+  record "Still the same commit" "${END_STATE%%$'\t'*}" "${END_STATE#*$'\t'}"
+fi
+
 # 5. The AI diff review can't be scripted, so it's listed rather than implied.
 record "AI diff review" "NOT RUN" "manual step: run /security-review on the pending change"
 # A manual step that's merely pending shouldn't make the scripted result look like a failure.
@@ -286,5 +309,12 @@ mkdir -p security-reports
 REPORT="security-reports/v$VERSION-$COMMIT-$TS.md"
 write_report "$REPORT" "Security gate: Readeez v$VERSION"
 echo; echo "Report: $REPORT"
-[ "$FAILED" = 0 ] && echo "RESULT: PASS (the AI diff review is still to do)" || echo "RESULT: FAIL"
+if [ "$FAILED" != 0 ]; then
+  echo "RESULT: FAIL"
+elif [ "$REQUIRE_CLEAN" = 1 ]; then
+  echo "RESULT: PASS (the AI diff review is still to do)"
+else
+  # Worded so a forgotten -- in "npm run security -- --commit", which npm swallows silently, can't look like approval.
+  echo "RESULT: PASS for $MODE_NOTE"
+fi
 exit "$FAILED"

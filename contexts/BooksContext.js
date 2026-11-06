@@ -9,7 +9,7 @@ import { randomUUID } from 'expo-crypto';
 import * as api from '../lib/api';
 import * as store from '../lib/bookStore';
 import { runSync } from '../lib/syncEngine';
-import { cleanNames, nextEditTime, sortBooks } from '../lib/bookLogic';
+import { cleanNames, mergeLoadedBooks, nextEditTime, sortBooks } from '../lib/bookLogic';
 import { useAuth } from './AuthContext';
 
 // Gathers a quick run of edits into one sync, rather than one request per edit.
@@ -51,7 +51,9 @@ export function BooksProvider({ children }) {
    *
    * Nothing runs until the books have loaded, however it was triggered. A sync started during loading would compare
    * against an empty list, and could save a sync position just after loading cleared it to fetch an unreadable book
-   * again, leaving that book missing. Loading runs a sync itself when it finishes, so nothing is missed.
+   * again, leaving that book missing. Loading runs a sync itself when it finishes, so nothing is missed. If loading
+   * fails, it reports that in the sync status instead, and syncing stays off until the app restarts: with the stored
+   * books unknown, a sync couldn't tell which ones still have changes to send.
    */
   const syncNow = useCallback(async () => {
     if (!userId || !loaded.current) return;
@@ -101,11 +103,16 @@ export function BooksProvider({ children }) {
     if (!userId) return undefined;
     store.loadBooks(userId).then((books) => {
       if (cancelled) return;
-      booksRef.current = books;
-      setAllBooks(books);
+      // The list was emptied above, so anything in it now was saved during the load.
+      booksRef.current = mergeLoadedBooks(books, booksRef.current);
+      setAllBooks(booksRef.current);
       setReady(true);
       loaded.current = true;
       syncNow();
+    }).catch((err) => {
+      if (cancelled) return;
+      console.warn(`Could not load books: ${err.message}`);
+      setSync((s) => ({ ...s, state: 'error', message: "Couldn't read your books on this phone. Restart the app." }));
     });
     return () => {
       cancelled = true;

@@ -48,9 +48,11 @@ The first release to be deployed. Versions 1.0.0 to 1.0.2 were pushed, but never
   import copy no longer fails the import.
 - The admin guide's steps for an account someone else is using now keep the account disabled until the code is used.
 - A database failure while taking back a rate-limit count can no longer stop the server.
-- A sync can no longer start while the library is still loading from the phone.
+- A sync can no longer start while the library is still loading from the phone. A book saved during loading now stays
+  in the list and syncs, and a failure to load is shown in the sync status.
 - The security gate now fails if any test is skipped, and its new `--commit` mode fails if there are uncommitted
-  files, since its results would then describe something other than the commit being approved.
+  files, if git can't report that, or if the commit changes mid-run, since its results would then describe something
+  other than the commit being approved. Without `--commit`, the result says it isn't approval for a commit.
 
 ### Schema
 
