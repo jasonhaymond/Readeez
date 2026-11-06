@@ -105,8 +105,9 @@ live_checks() {
   grep -q '^strict-transport-security:' <<<"$h" || missing+=" HSTS"
   grep -q '^x-content-type-options: nosniff' <<<"$h" || missing+=" nosniff"
   grep -qE "^content-security-policy:.*frame-ancestors 'none'" <<<"$h" || missing+=" frame-ancestors"
+  grep -q '^cache-control: no-store' <<<"$h" || missing+=" no-store"
   if grep -q '^x-powered-by:' <<<"$h"; then missing+=" (X-Powered-By present)"; fi
-  if [ -z "$missing" ]; then record "Security headers" PASS "HSTS, nosniff, framing blocked"; else record "Security headers" FAIL "missing:$missing"; fi
+  if [ -z "$missing" ]; then record "Security headers" PASS "HSTS, nosniff, framing blocked, no saved copies"; else record "Security headers" FAIL "missing:$missing"; fi
 
   # Protected routes must refuse anonymous requests.
   for p in /api/auth/me /api/nextcloud /api/admin/users /api/admin/status /api/admin/logs; do

@@ -54,6 +54,14 @@ function createApp({ syncLimit = 600 } = {}) {
   const origins = allowedOrigins();
   app.use(cors({ origin: origins.length ? origins : false }));
 
+  // Tells phones and proxies never to save these responses. Android's network layer otherwise keeps a plain-text copy
+  // of answers in the app's cache folder, including people's names and emails, outside the app's own encryption, and
+  // signing out doesn't clear that folder.
+  app.use((req, res, next) => {
+    res.set('Cache-Control', 'no-store');
+    next();
+  });
+
   // Logs each request's method, path and result, and counts it for the admin Server panel. Never
   // the body or the Authorization header, and originalUrl is cut at the "?" in case a query string
   // holds anything.

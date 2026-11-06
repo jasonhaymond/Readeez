@@ -19,6 +19,26 @@ beforeEach(async () => {
 });
 afterAll(() => pool.end());
 
+describe('saved copies of responses', () => {
+  // Data left on a phone: Android saved /api/auth/me in plain text in the app's cache, with the person's name and email,
+  // where on-device encryption and signing out didn't reach it. A saved copy needs the server to allow it.
+  test('responses with personal details tell the phone not to save them', async () => {
+    const admin = await createUser({ role: 'admin' });
+    for (const path of ['/api/auth/me', '/api/admin/users', '/api/nextcloud', '/api/admin/logs']) {
+      const res = await request(app).get(path).set('Authorization', bearer(admin.token));
+      expect(res.status).toBe(200);
+      expect(res.headers['cache-control']).toBe('no-store');
+    }
+  });
+
+  // Refusals and unknown addresses get the same header, so no route can be missed by being added later.
+  test('every other response does too', async () => {
+    for (const path of ['/api/auth/me', '/api/health', '/api/no-such-route']) {
+      expect((await request(app).get(path)).headers['cache-control']).toBe('no-store');
+    }
+  });
+});
+
 describe('security headers', () => {
   // Downgrade, clickjacking and MIME-sniffing protections are on every response, and
   // the framework isn't advertised to attackers.
