@@ -52,7 +52,7 @@ export function BooksProvider({ children }) {
    * Nothing runs until the books have loaded, however it was triggered. A sync started during loading would compare
    * against an empty list, and could save a sync position just after loading cleared it to fetch an unreadable book
    * again, leaving that book missing. Loading runs a sync itself when it finishes, so nothing is missed. If loading
-   * fails, it reports that in the sync status instead, and syncing stays off until the app restarts: with the stored
+   * fails, it reports that in the sync status, which the Library screen shows, and syncing stays off until the app restarts: with the stored
    * books unknown, a sync couldn't tell which ones still have changes to send.
    */
   const syncNow = useCallback(async () => {

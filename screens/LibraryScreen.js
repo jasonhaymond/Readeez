@@ -9,7 +9,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import Screen from '../components/Screen';
 import BookRow from '../components/BookRow';
-import { Button, Chip, SectionTitle, Stars } from '../components/ui';
+import { Button, Chip, Message, SectionTitle, Stars } from '../components/ui';
 import { useBooks } from '../contexts/BooksContext';
 import { useTheme } from '../contexts/ThemeContext';
 import { distinctNames, filterBooks } from '../lib/bookLogic';
@@ -67,7 +67,7 @@ export default function LibraryScreen() {
             onAdd={() => navigation.navigate('Book')}
             onClear={() => { setStatus(null); setFilters({ author: null, category: null, rating: null }); }}
           />
-        ) : null}
+        ) : <Message text={sync.state === 'error' ? sync.message : null} />}
       />
       <FilterSheet visible={filterOpen} books={books} filters={filters} onChange={setFilters} onClose={() => setFilterOpen(false)} />
     </Screen>

@@ -22,8 +22,11 @@ The first release to be deployed. Versions 1.0.0 to 1.0.2 were pushed, but never
 - A Nextcloud connection request held open across a password change can no longer restore the link. Requests to
   Nextcloud also have an overall time limit.
 - Books, notes and the signed-in person's details are now encrypted on the phone, with a key protected by Android's Keystore.
-- Every API response now tells the phone not to save a copy. Android was keeping plain-text copies in the app's cache
-  folder, including names and emails, and for admins the family list and logs, which signing out didn't clear.
+- Every API response now tells the phone not to save a copy, and the app asks for the same. Android was keeping
+  plain-text copies in the app's cache folder, including names and emails, and for admins the family list and logs,
+  which signing out didn't clear.
+- Export and import copies left by the app being stopped mid-share are now removed when it next starts and at sign-out,
+  and a failed export no longer leaves a partial file.
 - Rate-limit counts now live in the database, so a restart no longer gives anyone fresh sign-in attempts. Signed-in
   sync requests now have a limit too, of 600 per account per 15 minutes.
 - Cleared every `npm audit` finding: forced fixed versions of `glob` and `minimatch`, and moved the tests from Jest to
@@ -51,7 +54,7 @@ The first release to be deployed. Versions 1.0.0 to 1.0.2 were pushed, but never
 - The admin guide's steps for an account someone else is using now keep the account disabled until the code is used.
 - A database failure while taking back a rate-limit count can no longer stop the server.
 - A sync can no longer start while the library is still loading from the phone. A book saved during loading now stays
-  in the list and syncs, and a failure to load is shown in the sync status.
+  in the list and syncs, and a failure to load is shown on the Library screen.
 - The security gate now fails if any test is skipped, and its new `--commit` mode fails if there are uncommitted
   files, if git can't report that, or if the commit changes mid-run, since its results would then describe something
   other than the commit being approved. Without `--commit`, the result says it isn't approval for a commit.

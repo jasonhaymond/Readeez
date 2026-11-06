@@ -8,6 +8,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as api from '../lib/api';
 import { clearToken, loadToken, saveToken } from '../lib/tokenStore';
 import { clearAccount } from '../lib/bookStore';
+import { clearLeftoverFiles } from '../lib/exportFile';
 import { seal, unseal } from '../lib/localCrypto';
 
 const USER_KEY = 'rz:user';
@@ -36,6 +37,7 @@ export function AuthProvider({ children }) {
   // when the server says the session is no longer valid.
   useEffect(() => {
     api.setUnauthorizedHandler(endSession);
+    clearLeftoverFiles();
     (async () => {
       await api.loadServerUrl();
       const [token, saved] = await Promise.all([loadToken(), AsyncStorage.getItem(USER_KEY)]);
@@ -73,11 +75,12 @@ export function AuthProvider({ children }) {
     redeem: async (details) => startSession(await api.request('POST', '/api/auth/redeem', details)),
     /**
      * Signs out on purpose: ends the session on the server if it can be reached, then
-     * erases this account's books from the phone, since the person chose to leave.
+     * erases this account's books and any leftover export files from the phone, since the person chose to leave.
      */
     signOut: async () => {
       await api.request('POST', '/api/auth/logout').catch(() => {});
       if (user) await clearAccount(user.id);
+      clearLeftoverFiles();
       await endSession();
     },
   }), [user, loading, startSession, endSession]);
