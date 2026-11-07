@@ -1,6 +1,9 @@
 // components/ui.js
 // The small building blocks the screens share, so everything looks and behaves the same:
 // buttons, text fields, cards, pill-shaped choices, stars, and a confirmation dialog.
+//
+// Controls state what they are twice: accessibilityState is what Android's screen reader reads, and the aria- properties
+// are what a browser's reads, because the browser version ignores accessibilityState.
 
 import React from 'react';
 import { ActivityIndicator, Modal, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
@@ -22,6 +25,7 @@ export function Button({ label, onPress, kind = 'primary', busy = false, disable
       disabled={busy || disabled}
       accessibilityRole="button"
       accessibilityState={{ disabled: busy || disabled, busy }}
+      aria-busy={busy}
       style={({ pressed }) => [
         styles.button,
         primary ? { backgroundColor: colors.accent } : { borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface },
@@ -88,7 +92,8 @@ export function Segmented({ options, value, onChange }) {
             key={option.id}
             onPress={() => onChange(option.id)}
             accessibilityRole="radio"
-            accessibilityState={{ selected }}
+            accessibilityState={{ selected, checked: selected }}
+            aria-checked={selected}
             style={[styles.segment, selected && { backgroundColor: colors.accent }]}
           >
             <Text style={{ color: selected ? colors.onAccent : colors.text, fontWeight: selected ? '600' : '400', fontSize: 14 }} numberOfLines={1}>
@@ -109,6 +114,7 @@ export function Chip({ label, selected, onPress, icon }) {
       onPress={onPress}
       accessibilityRole="button"
       accessibilityState={{ selected: Boolean(selected) }}
+      aria-pressed={Boolean(selected)}
       style={[styles.chip, { borderColor: selected ? colors.accent : colors.border, backgroundColor: selected ? colors.accent : colors.surface }]}
     >
       <Text style={{ color: selected ? colors.onAccent : colors.text, fontSize: 14 }} numberOfLines={1}>{label}</Text>
@@ -120,9 +126,10 @@ export function Chip({ label, selected, onPress, icon }) {
 /**
  * 1 to 5 stars. Read-only unless onChange is given. Tapping the current rating clears it,
  * because a rating is optional.
- * In: value (1 to 5 or null), size, and optional onChange(valueOrNull).
+ * In: value (1 to 5 or null), size, optional onChange(valueOrNull), and optional label, which tells a screen reader what
+ * these stars rate when a screen has several rows of them.
  */
-export function Stars({ value, size = 16, onChange }) {
+export function Stars({ value, size = 16, onChange, label }) {
   const { colors } = useTheme();
   const star = (n) => (
     <Ionicons name={value >= n ? 'star' : 'star-outline'} size={size} color={value >= n ? colors.accent : colors.muted} />
@@ -142,8 +149,9 @@ export function Stars({ value, size = 16, onChange }) {
           onPress={() => onChange(value === n ? null : n)}
           style={styles.starButton}
           accessibilityRole="button"
-          accessibilityLabel={`${n} star${n > 1 ? 's' : ''}`}
+          accessibilityLabel={`${label ? `${label}: ` : ''}${n} star${n > 1 ? 's' : ''}`}
           accessibilityState={{ selected: value === n }}
+          aria-pressed={value === n}
         >
           {star(n)}
         </Pressable>

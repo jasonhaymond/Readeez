@@ -8,7 +8,7 @@ const { toJson } = require('../server/exportFormat');
 const ID = '3f2a9c1e-7b4d-4e8a-9f10-6c2d8e1b5a70';
 const OTHER = '3f2a9c1e-7b4d-4e8a-9f10-6c2d8e1b5a71';
 const book = (fields = {}) => ({
-  id: ID, title: 'T', authors: ['A'], categories: [], status: 'finished', rating: 4, readDate: '2026-01-02', notes: 'n',
+  id: ID, title: 'T', authors: ['A'], categories: [], status: 'finished', rating: 4, categoryRatings: [], boxTotal: null, boxRead: null, boxTitles: [], readDate: '2026-01-02', notes: 'n',
   updatedAt: '2026-01-02T00:00:00.000Z', ...fields,
 });
 const file = (books) => JSON.stringify({ app: 'Readeez', books });
@@ -97,5 +97,52 @@ describe('planning an import', () => {
 
   test('saved books get a new edit time so the import wins on other devices', () => {
     expect(planImport([], [book({ id: OTHER })], now).toSave[0].updatedAt).toBe('2026-06-01T00:00:00.000Z');
+  });
+});
+
+describe('box counts and category ratings in a file', () => {
+  const FILE_BOOK = {
+    id: '3f2a9c1e-7b4d-4e8a-9f10-6c2d8e1b5a70', title: 'A Box', status: 'reading', categories: ['Crime'], updatedAt: '2026-11-04T00:00:00.000Z',
+  };
+  const read = (fields) => parseExport(JSON.stringify({ app: 'Readeez', books: [{ ...FILE_BOOK, ...fields }] }));
+
+  test('they are kept', () => {
+    const { books } = read({ boxTotal: 7, boxRead: 3, categoryRatings: [{ category: 'Crime', rating: 4 }] });
+    expect(books[0]).toMatchObject({ boxTotal: 7, boxRead: 3, categoryRatings: [{ category: 'Crime', rating: 4 }] });
+  });
+
+  // A file from v1.0 has neither, and must still import.
+  test('an older file without them still imports', () => {
+    const { books, invalid } = read({});
+    expect(invalid).toBe(0);
+    expect(books[0]).toMatchObject({ boxTotal: null, boxRead: null, categoryRatings: [] });
+  });
+
+  // A file can be edited, and these counts feed the stats, so impossible values are left out.
+  test.each([
+    [{ boxTotal: 3, boxRead: 4 }],
+    [{ boxRead: 2 }],
+    [{ boxTotal: 1 }],
+    [{ boxTotal: '7' }],
+    [{ categoryRatings: 'lots' }],
+  ])('%j is left out', (fields) => {
+    expect(read(fields).invalid).toBe(1);
+  });
+
+  test('box titles are kept, and older files have none', () => {
+    expect(read({ boxTotal: 2, boxTitles: ['One, Two', 'Three'] }).books[0].boxTitles).toEqual(['One, Two', 'Three']);
+    expect(read({}).books[0].boxTitles).toEqual([]);
+  });
+
+  // A file can be edited, so the same limits as the server apply.
+  test.each([[{ boxTitles: ['A'] }], [{ boxTotal: 2, boxTitles: ['A', 'B', 'C'] }], [{ boxTotal: 2, boxTitles: 'A' }], [{ boxTotal: 2, boxTitles: [5] }]])('box titles %j are left out', (fields) => {
+    expect(read(fields).invalid).toBe(1);
+  });
+
+  // Nothing unexpected from the file reaches a stored book.
+  test('a bad rating is dropped, and unknown fields do not get through', () => {
+    const { books } = read({ categoryRatings: [{ category: 'Crime', rating: 9 }], isAdmin: true });
+    expect(books[0].categoryRatings).toEqual([]);
+    expect(books[0].isAdmin).toBeUndefined();
   });
 });

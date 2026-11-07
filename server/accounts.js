@@ -64,7 +64,11 @@ async function changeGuardingLastAdmin(id, change) {
 /**
  * Disables or re-enables an account.
  * In: the id and true/false. Side effects: disabling signs that person out everywhere at once, and
- * cancels their unused codes. Their books are kept. Re-enabling doesn't bring the codes back.
+ * cancels the unused codes they made and any unused reset code made for them. Otherwise a reset code issued
+ * before the account was disabled, perhaps to someone who shouldn't have it, would still let its holder take
+ * over the account the moment it's enabled again. A reset code made after disabling isn't touched, which is how
+ * an admin secures an account (see docs/admin-guide.md). Their books are kept. Re-enabling doesn't bring the
+ * codes back.
  */
 async function setDisabled(id, disabled) {
   if (!disabled) {
@@ -74,6 +78,7 @@ async function setDisabled(id, disabled) {
   }
   await changeGuardingLastAdmin(id, async (client) => {
     await cancelCodesFrom(client, id);
+    await client.query(`delete from access_codes where kind = 'reset' and user_id = $1 and used_at is null`, [id]);
     await client.query('update users set disabled_at = now() where id = $1', [id]);
   });
   await deleteSessions(id);

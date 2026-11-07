@@ -34,7 +34,7 @@ vi.mock('expo-sharing', () => ({
   },
 }));
 vi.mock('expo-document-picker', () => ({}));
-vi.mock('../server/exportFormat', () => ({ toCsv: () => 'csv', toJson: () => 'json' }));
+vi.mock('../lib/exportBuild', () => ({ buildExport: (books, format) => ({ mimeType: 'text/plain', text: format }) }));
 
 const { clearLeftoverFiles, shareExport } = await import('../lib/exportFile');
 
@@ -83,4 +83,13 @@ test('leftover exports and picker copies are removed, and nothing else', () => {
 test('a failure while clearing does not throw', () => {
   fake.listing = [{ name: 'readeez-export-x.csv', delete() { throw new Error('will not delete'); } }];
   expect(() => clearLeftoverFiles()).not.toThrow();
+});
+
+// One stuck file mustn't leave the rest of the library's plain-text copies behind.
+test('one file that will not delete does not stop the others', () => {
+  const stuck = { name: 'readeez-export-a.csv', delete() { throw new Error('will not delete'); } };
+  const next = item('readeez-export-b.csv');
+  fake.listing = [stuck, next];
+  expect(() => clearLeftoverFiles()).not.toThrow();
+  expect(next.deleted).toBe(true);
 });

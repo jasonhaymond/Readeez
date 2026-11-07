@@ -1,5 +1,5 @@
 // screens/StatsScreen.js
-// Reading statistics, worked out from the phone's own copy of the library. The headline
+// Reading statistics, worked out from the device's own copy of the library. A book box counts for each book read from it. The headline
 // figures are plain numbers. The rankings are thin horizontal bars with the count written
 // beside each one: the labels stay readable on a phone, and the value is there as text so
 // nothing depends on judging a bar's length. Each chart is one series in the theme's accent
@@ -25,22 +25,23 @@ function Tile({ label, value }) {
 }
 
 /**
- * A ranked bar chart. In: title and rows [{ label, count }]. Draws nothing without data.
- * All bars share one scale, set by the largest count, starting from zero.
+ * A ranked bar chart. In: title, rows [{ label, count }], and optionally max (the top of the scale) and format (how to
+ * write a value). Draws nothing without data.
+ * All bars share one scale, set by the largest count unless max is given, starting from zero.
  */
-function Bars({ title, rows }) {
+function Bars({ title, rows, max: fixedMax, format = String }) {
   const { colors } = useTheme();
   if (!rows.length) return null;
-  const max = Math.max(...rows.map((row) => row.count), 1);
+  const max = fixedMax ?? Math.max(...rows.map((row) => row.count), 1);
   return (
     <>
       <SectionTitle>{title}</SectionTitle>
       <Card>
         {rows.map((row) => (
-          <View key={row.label} style={styles.row} accessible accessibilityLabel={`${row.label}: ${row.count}`}>
+          <View key={row.label} style={styles.row} accessible accessibilityLabel={`${row.label}: ${format(row.count)}`}>
             <View style={styles.rowText}>
               <Text style={[styles.rowLabel, { color: colors.text }]} numberOfLines={1}>{row.label}</Text>
-              <Text style={[styles.rowCount, { color: colors.muted }]}>{row.count}</Text>
+              <Text style={[styles.rowCount, { color: colors.muted }]}>{format(row.count)}</Text>
             </View>
             {/* A zero count (a year with no books) shows an empty track, with no bar. */}
             <View style={[styles.track, { backgroundColor: colors.border }]}>
@@ -63,7 +64,7 @@ export default function StatsScreen() {
     <Screen title="Stats" back>
       <ScrollView contentContainerStyle={styles.content}>
         <View style={styles.tiles}>
-          <Tile label="Finished" value={stats.finished} />
+          <Tile label="Books read" value={stats.finished} />
           <Tile label="This year" value={stats.thisYear} />
           <Tile label="Avg. rating" value={stats.averageRating ? stats.averageRating.toFixed(1) : '–'} />
         </View>
@@ -73,6 +74,8 @@ export default function StatsScreen() {
         <Bars title="Books per year" rows={stats.byYear} />
         <Bars title="Top authors" rows={stats.topAuthors} />
         <Bars title="Top categories" rows={stats.topCategories} />
+        {/* Stars run from 1 to 5, so that's the scale, and a lone 3-star category doesn't draw as a full bar. */}
+        <Bars title="Category ratings" rows={stats.categoryRatings} max={5} format={(average) => average.toFixed(1)} />
         {stats.finished === 0 ? (
           <Text style={[styles.summary, { color: colors.muted }]}>Finish a book and your stats will appear here.</Text>
         ) : null}

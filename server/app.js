@@ -1,7 +1,7 @@
 // app.js
 // Assembles the web server: security headers, CORS, request size limits, the health
-// check, every route, and the catch-all error handler. Kept apart from index.js so
-// the tests can run it without opening a network port or starting background timers.
+// check, every route, the browser version of the app, and the catch-all error handler. Kept apart
+// from index.js so the tests can run it without opening a network port or starting background timers.
 
 const express = require('express');
 const cors = require('cors');
@@ -14,14 +14,16 @@ const { requireAuth } = require('./auth');
 const { PostgresRateStore } = require('./rateLimitStore');
 const { createAdminRouter } = require('./routes/admin');
 const { createNextcloudRouter } = require('./routes/nextcloud');
+const { createLookupRouter } = require('./routes/lookup');
+const { createWebRouter } = require('./webApp');
 const { recordRequest } = require('./metrics');
 const log = require('./logger')('http');
 
 /**
  * Reads which web origins may call this API from a browser.
  * In: nothing (reads CORS_ALLOWED_ORIGINS, comma-separated). Out: a list of origins.
- * The Android app isn't subject to CORS, so production normally leaves this empty,
- * which means no website anywhere can call the API from a visitor's browser.
+ * The Android app isn't subject to CORS, and the web app is served from this same address, so production
+ * normally leaves this empty, which means no other website can call the API from a visitor's browser.
  */
 function allowedOrigins() {
   return String(process.env.CORS_ALLOWED_ORIGINS || '').split(',').map((o) => o.trim()).filter(Boolean);
@@ -30,10 +32,11 @@ function allowedOrigins() {
 /**
  * Builds the Express app.
  * In: optionally { syncLimit }, how many sync requests an account may make per 15 minutes. Far more than real
- * use needs: a phone syncs after edits, in batches of 200 books.
+ * use needs: a phone syncs after edits, in batches of 200 books. Also { lookupLimit }, the same for book suggestions,
+ * and { webRoot }, the folder of built web files, which defaults to the WEB_ROOT setting.
  * Out: the app, ready to listen or to be tested. Touches nothing until it's used.
  */
-function createApp({ syncLimit = 600 } = {}) {
+function createApp({ syncLimit = 600, lookupLimit = 200, webRoot = process.env.WEB_ROOT } = {}) {
   const app = express();
 
   // The reverse proxy (Caddy) connects to this server, so every request appears to
@@ -44,7 +47,8 @@ function createApp({ syncLimit = 600 } = {}) {
   app.set('trust proxy', Number(process.env.TRUST_PROXY) || 0);
 
   // Standard protective headers (HSTS, no MIME sniffing, no framing, and so on).
-  // This server sends only JSON, so its content policy allows nothing at all.
+  // The API sends only JSON, so its content policy allows nothing at all. The web app's pages replace it
+  // with their own (see webApp.js).
   app.use(helmet({
     contentSecurityPolicy: { useDefaults: false, directives: { defaultSrc: ["'none'"], frameAncestors: ["'none'"] } },
   }));
@@ -106,6 +110,11 @@ function createApp({ syncLimit = 600 } = {}) {
   app.use('/api/auth', express.json({ limit: '16kb' }), createAuthRouter());
   app.use('/api/admin', express.json({ limit: '16kb' }), createAdminRouter());
   app.use('/api/nextcloud', express.json({ limit: '16kb' }), createNextcloudRouter());
+  app.use('/api/lookup', express.json({ limit: '16kb' }), createLookupRouter({ limit: lookupLimit }));
+
+  // The browser version of the app, when this server has one.
+  const web = createWebRouter(webRoot);
+  if (web) app.use(web);
 
   // Anything else is a plain 404, not Express's default HTML page.
   app.use((req, res) => res.status(404).json({ error: 'Not found.' }));

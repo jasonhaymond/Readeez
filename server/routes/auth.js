@@ -44,11 +44,33 @@ function createAuthRouter() {
   });
 
   /**
+   * Middleware for the two routes that start a session. A request saying it's from the web app must really come from
+   * its own page. Otherwise another website could sign a visitor's browser in to an account the attacker controls, and
+   * collect whatever they then add. Phones don't send this header, so they aren't affected.
+   */
+  const refuseForgedWebSignIn = (req, res, next) => {
+    if (req.get('x-readeez-client') !== undefined && !auth.isOwnWebPage(req)) return res.status(403).json({ error: 'That request wasn\'t allowed.' });
+    return next();
+  };
+
+  /**
+   * Answers a successful sign-in the way the caller needs.
+   * In: the request, the response, the status, a session token and the user's public details.
+   * Side effects: for a browser, sets the cookie and leaves the token out of the answer, so page scripts never hold it.
+   * A phone gets the token to keep in its Keystore.
+   */
+  const answerSignIn = (req, res, status, token, user) => {
+    if (!auth.isOwnWebPage(req)) return res.status(status).json({ token, user });
+    auth.setWebCookie(res, token);
+    return res.status(status).json({ user });
+  };
+
+  /**
    * POST /api/auth/redeem — public. Creates an account from an invite code.
-   * In: { code, email, displayName, password }. Out: { token, user }.
+   * In: { code, email, displayName, password }. Out: { user }, plus { token } for a phone.
    * Side effects: uses up the code, inserts the user, starts a session.
    */
-  router.post('/redeem', limiter, async (req, res) => {
+  router.post('/redeem', limiter, refuseForgedWebSignIn, async (req, res) => {
     const { code, email, displayName, password } = req.body || {};
     const cleanEmail = String(email || '').trim().toLowerCase();
     const cleanName = String(displayName || '').replace(CONTROL_CHARS, '').trim();
@@ -90,16 +112,17 @@ function createAuthRouter() {
       client.release();
     }
     log.info(`account created: user ${user.id} role ${user.role}`);
-    return res.status(201).json({ token: await auth.createSession(user.id), user: publicUser(user) });
+    const session = await auth.createSession(user.id, null, { web: auth.isOwnWebPage(req) });
+    return answerSignIn(req, res, 201, session, publicUser(user));
   });
 
   /**
    * POST /api/auth/login — public. Signs in.
-   * In: { email, password }. Out: { token, user }, or 401 with the same message
+   * In: { email, password }. Out: { user }, plus { token } for a phone, or 401 with the same message
    * whether the email is unknown, the password wrong, or the account disabled.
    * Side effects: starts a session.
    */
-  router.post('/login', limiter, async (req, res) => {
+  router.post('/login', limiter, refuseForgedWebSignIn, async (req, res) => {
     const { email, password } = req.body || {};
     if (typeof email !== 'string' || typeof password !== 'string' || !email || !password) {
       return res.status(400).json({ error: 'Enter your email and password.' });
@@ -112,10 +135,10 @@ function createAuthRouter() {
     if (!(await auth.checkPassword(password, user && user.password_hash))) {
       return res.status(401).json({ error: BAD_LOGIN });
     }
-    const token = await auth.createSession(user.id, user.password_hash);
+    const token = await auth.createSession(user.id, user.password_hash, { web: auth.isOwnWebPage(req) });
     // The password changed, or the account was disabled, while this was being checked.
     if (!token) return res.status(401).json({ error: BAD_LOGIN });
-    return res.json({ token, user: publicUser(user, await auth.resetHistory(user.id)) });
+    return answerSignIn(req, res, 200, token, publicUser(user, await auth.resetHistory(user.id)));
   });
 
   /**
@@ -163,10 +186,11 @@ function createAuthRouter() {
 
   /**
    * POST /api/auth/logout — signed-in users. Ends this device's session on the
-   * server, so the token is useless even if it was copied. Out: { ok: true }.
+   * server, so the token is useless even if it was copied, and tells a browser to drop its cookie. Out: { ok: true }.
    */
   router.post('/logout', auth.requireAuth, async (req, res) => {
     await auth.deleteSession(req.token);
+    res.clearCookie(auth.webCookieName(), auth.webCookieOptions());
     res.json({ ok: true });
   });
 

@@ -16,7 +16,7 @@ module.exports = [
   },
   {
     // Server code, tests and logic modules use Node's older require() syntax.
-    files: ['server/**/*.js', 'lib/bookLogic.js', 'lib/syncEngine.js', 'lib/importBooks.js', 'server/rateLimitStore.js', 'constants/themes.js', 'test/**/*.js', 'eslint.config.js'],
+    files: ['server/**/*.js', 'lib/bookLogic.js', 'lib/syncEngine.js', 'lib/importBooks.js', 'server/rateLimitStore.js', 'constants/themes.js', 'plugins/**/*.js', 'test/**/*.js', 'eslint.config.js'],
     languageOptions: { sourceType: 'commonjs' },
   },
 ];

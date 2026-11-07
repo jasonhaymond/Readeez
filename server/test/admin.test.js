@@ -116,6 +116,36 @@ describe('a removed admin\'s codes', () => {
     expect((await request(app).post('/api/auth/reset').send({ code, password: 'attacker-password-1' })).status).toBe(400);
   });
 
+  // Takeover through an old code: a reset code issued before someone was disabled mustn't still work once they're
+  // enabled again, or its holder could take the account over.
+  test('disabling cancels unused reset codes made for that person', async () => {
+    await createUser({ role: 'admin' });
+    const person = await createUser();
+    const code = await auth.createResetCode(person.id, null);
+    await accounts.setDisabled(person.id, true);
+    await accounts.setDisabled(person.id, false);
+    expect((await request(app).post('/api/auth/reset').send({ code, password: 'attacker-password-1' })).status).toBe(400);
+  });
+
+  // Securing an account depends on this: an admin disables it first, then makes a code for its owner.
+  test('a reset code made after disabling still works', async () => {
+    await createUser({ role: 'admin' });
+    const person = await createUser();
+    await accounts.setDisabled(person.id, true);
+    const code = await auth.createResetCode(person.id, null);
+    expect((await request(app).post('/api/auth/reset').send({ code, password: 'owner-new-password' })).status).toBe(200);
+  });
+
+  // The reset history is the person's only evidence of an admin signing in as them, so it has to survive.
+  test('disabling keeps the record of used reset codes', async () => {
+    await createUser({ role: 'admin' });
+    const person = await createUser();
+    const code = await auth.createResetCode(person.id, null);
+    await request(app).post('/api/auth/reset').send({ code, password: 'owner-new-password' });
+    await accounts.setDisabled(person.id, true);
+    expect((await auth.resetHistory(person.id)).recent).toHaveLength(1);
+  });
+
   // Re-enabling someone doesn't bring back codes cancelled when they were disabled.
   test('re-enabling does not revive the codes', async () => {
     await createUser({ role: 'admin' });

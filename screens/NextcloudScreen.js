@@ -10,9 +10,11 @@ import { Button, Card, Dialog, Field, Message } from '../components/ui';
 import { useBooks } from '../contexts/BooksContext';
 import { useTheme } from '../contexts/ThemeContext';
 import * as api from '../lib/api';
+import { useRevealFocusedField } from '../lib/useRevealFocusedField';
 
 /** The Nextcloud screen. */
 export default function NextcloudScreen() {
+  const { scrollRef, onScroll, reveal } = useRevealFocusedField();
   const { colors } = useTheme();
   const { syncNow } = useBooks();
   const [link, setLink] = useState(null);
@@ -42,7 +44,7 @@ export default function NextcloudScreen() {
     setForm((current) => ({ ...current, appPassword: '' }));
   };
 
-  /** Syncs first, so an export made now includes the latest edits from this phone. */
+  /** Syncs first, so an export made now includes the latest edits from this device. */
   const exportNow = async () => {
     await syncNow();
     await run(() => api.request('POST', '/api/nextcloud/export'));
@@ -51,7 +53,7 @@ export default function NextcloudScreen() {
   return (
     <Screen title="Nextcloud" back>
       <KeyboardAvoidingView behavior="padding" style={styles.fill}>
-        <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
+        <ScrollView ref={scrollRef} onScroll={onScroll} scrollEventThrottle={32} contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
           <Message text={error} />
           {link?.connected ? (
             <Card>
@@ -82,9 +84,9 @@ export default function NextcloudScreen() {
               <Text style={[styles.text, { color: colors.muted }]}>
                 In Nextcloud, open Personal settings, then Security, and create an app password. Use that here, not your normal password. Changing your Readeez password disconnects this, so anyone who had access can't keep receiving your books.
               </Text>
-              <Field label="Nextcloud address" value={form.baseUrl} onChangeText={(baseUrl) => setForm({ ...form, baseUrl })} placeholder="https://cloud.example.com" autoCapitalize="none" autoCorrect={false} keyboardType="url" />
-              <Field label="User name" value={form.username} onChangeText={(username) => setForm({ ...form, username })} autoCapitalize="none" autoCorrect={false} />
-              <Field label="App password" value={form.appPassword} onChangeText={(appPassword) => setForm({ ...form, appPassword })} secureTextEntry autoCapitalize="none" />
+              <Field onFocus={reveal} label="Nextcloud address" value={form.baseUrl} onChangeText={(baseUrl) => setForm({ ...form, baseUrl })} placeholder="https://cloud.example.com" autoCapitalize="none" autoCorrect={false} keyboardType="url" />
+              <Field onFocus={reveal} label="User name" value={form.username} onChangeText={(username) => setForm({ ...form, username })} autoCapitalize="none" autoCorrect={false} />
+              <Field onFocus={reveal} label="App password" value={form.appPassword} onChangeText={(appPassword) => setForm({ ...form, appPassword })} secureTextEntry autoCapitalize="none" />
               <Button label="Connect" onPress={connect} busy={busy} />
             </>
           )}

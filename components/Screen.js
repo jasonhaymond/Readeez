@@ -43,7 +43,7 @@ export default function Screen({ title, back = false, logo = false, children }) 
 
   return (
     <Background>
-      <View style={[styles.header, { paddingTop: insets.top + 4 }]}>
+      <View style={[styles.header, styles.column, { paddingTop: insets.top + 4 }]}>
         {back ? (
           <HeaderButton icon="arrow-back" label="Back" color={colors.text} onPress={() => navigation.goBack()} />
         ) : null}
@@ -56,7 +56,7 @@ export default function Screen({ title, back = false, logo = false, children }) 
         <HeaderButton icon="add-circle" label="Add a book" color={colors.accent} onPress={() => navigation.navigate('Book')} />
         <HeaderButton icon="ellipsis-vertical" label="More" color={colors.text} onPress={() => setMenuOpen(true)} />
       </View>
-      <View style={styles.body}>{children}</View>
+      <View style={[styles.body, styles.column]}>{children}</View>
 
       {/* A tap outside the menu closes it: the full-screen Pressable sits behind the card. */}
       <Modal visible={menuOpen} transparent animationType="fade" onRequestClose={() => setMenuOpen(false)}>
@@ -89,6 +89,8 @@ const styles = StyleSheet.create({
   logo: { width: 30, height: 30, marginLeft: 12 },
   title: { flex: 1, fontSize: 21, fontWeight: '700' },
   body: { flex: 1 },
+  // A phone screen is narrower than this. In a wide browser window, it keeps lines at a readable length.
+  column: { width: '100%', maxWidth: 760, alignSelf: 'center' },
   menuBackdrop: { flex: 1 },
   menu: { position: 'absolute', right: 8, minWidth: 180, borderRadius: 12, borderWidth: 1, paddingVertical: 6, elevation: 6 },
   menuItem: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 16, minHeight: 48 },

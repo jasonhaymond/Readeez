@@ -3,10 +3,10 @@
 # Readeez
 
 A simple book tracker for a family. Log what you've read with its authors, categories, status,
-rating, read date and your notes. It's an Android app that works offline and syncs to your own
+rating, read date and your notes. It's an Android app that works offline, and a web app, both syncing to your own
 server, with backups and exports to Nextcloud.
 
-**Current version: 1.0.3** · [Changelog](CHANGELOG.md)
+**Current version: 1.1.0** · [Changelog](CHANGELOG.md)
 
 ## Documentation
 
@@ -20,17 +20,23 @@ server, with backups and exports to Nextcloud.
 
 - **Quick add:** the + at the top of every screen. Only the title is required, and the read date
   starts as today.
+- **Suggestions:** pick from authors and categories you've already used, or from title and author suggestions from Open
+  Library, with Google Books as an optional backup. Online suggestions can be turned off.
+- **Book boxes:** one title with a count of the books inside. Each one read counts in your stats. Listing the titles inside is an option in Settings.
+- **Ratings:** optional stars for the book and for each of its categories.
 - **Global search:** the magnifying glass at the top of every screen searches titles, authors,
   categories and notes.
 - **Library:** most recently read first, filtered by status, author, category or rating.
-- **Stats:** totals, books per year, top authors and categories.
-- **Works offline:** everything is saved on the phone first and syncs when it can. If a book was
+- **Stats:** totals, books per year, top authors and categories, and average stars per category.
+- **Works offline on Android:** everything is saved on the phone first and syncs when it can. If a book was
   changed on two devices, the most recent change is kept.
+- **Web app:** the full app in a browser, including admin features, served by your server at its own address. It needs a
+  connection, and keeps nothing in the browser.
 - **Family accounts:** an admin invites each person. Admins see how many books someone has, not what
   they are. An admin could sign in as someone with a password reset code, so the person is signed out and
   shown when codes were used. Anyone who runs the server can read its database.
 - **Backups and exports:** nightly encrypted server backups to Nextcloud, optional daily personal
-  exports to each person's own Nextcloud, CSV or JSON through Android's share menu, and importing a
+  exports to each person's own Nextcloud, CSV or JSON through Android's share menu or a browser download, and importing a
   JSON export back in.
 - **Admin tools:** family accounts, server status, Back up now, Update and a log viewer in the app,
   plus a full terminal admin panel for SSH (`server/admin.sh`).
@@ -42,7 +48,7 @@ Planned for a later release: image backgrounds from Pexels.
 
 | Part | Technology | Where |
 |---|---|---|
-| Android app | Expo / React Native, JavaScript | repo root (`App.js`, `screens/`, `components/`, `contexts/`, `lib/`) |
+| Android and web app | Expo / React Native, JavaScript. `*.web.js` files replace phone-only code in the browser build | repo root (`App.js`, `screens/`, `components/`, `contexts/`, `lib/`) |
 | Server | Node, Express | `server/` |
 | Database | PostgreSQL | `server/migrations/` |
 | App builds | Self-hosted build server | `scripts/build-android.mjs` |
@@ -68,11 +74,10 @@ You need Node 24 and Docker.
    docker run -d --name readeez-dev-pg -e POSTGRES_DB=readeez -e POSTGRES_USER=readeez \
      -e POSTGRES_PASSWORD=dev -p 127.0.0.1:15436:5432 postgres:18-alpine
    cd server
-   DATABASE_URL=postgres://readeez:dev@127.0.0.1:15436/readeez SECRETS_KEY=dev PORT=3020 \
-     CORS_ALLOWED_ORIGINS=http://localhost:8081 node index.js
+   DATABASE_URL=postgres://readeez:dev@127.0.0.1:15436/readeez SECRETS_KEY=dev PORT=3020 node index.js
    ```
 
-   Expected: `Readeez server v1.0.3 listening on port 3020`.
+   Expected: `Readeez server v1.1.0 listening on port 3020`.
 
 3. In another terminal, make your first account's invite code:
 
@@ -82,14 +87,18 @@ You need Node 24 and Docker.
      node scripts/create-admin-invite.js
    ```
 
-4. Start the app, then choose "I have an invite code":
+4. See the web app: build it, then restart the server pointing at it. The web app signs in with a cookie that only works
+   from the server's own address, so `npm run web`'s separate development address can't sign in.
 
    ```bash
-   EXPO_PUBLIC_API_URL=http://localhost:3020 npm run web
+   npx expo export --platform web --output-dir dist
+   cd server
+   WEB_ROOT=../dist DATABASE_URL=postgres://readeez:dev@127.0.0.1:15436/readeez SECRETS_KEY=dev PORT=3020 node index.js
    ```
 
-   The browser version is a developer preview for quick UI work. Android is the product, so test
-   native features (date picker, secure storage, sharing, keyboard) on Android.
+   Open `http://localhost:3020` and choose "I have an invite code".
+
+5. Test native features (date picker, secure storage, sharing, keyboard) on Android: `EXPO_PUBLIC_API_URL=http://YOUR-PC-ADDRESS:3020 npm run android`.
 
 ## Tests and the security gate
 

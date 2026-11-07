@@ -109,6 +109,30 @@ live_checks() {
   if grep -q '^x-powered-by:' <<<"$h"; then missing+=" (X-Powered-By present)"; fi
   if [ -z "$missing" ]; then record "Security headers" PASS "HSTS, nosniff, framing blocked, no saved copies"; else record "Security headers" FAIL "missing:$missing"; fi
 
+  # The no-store rule matters most on answers with personal details. A refusal runs the same code path as a real answer,
+  # so these prove it covers those routes without needing an account.
+  missing=""
+  for p in /api/auth/me /api/admin/users /api/nextcloud; do
+    h="$(curl -s --max-time 15 -D - -o /dev/null "$url$p" | tr -d '\r' | tr '[:upper:]' '[:lower:]')"
+    grep -q '^cache-control: no-store' <<<"$h" || missing+=" $p"
+  done
+  if [ -z "$missing" ]; then record "No saved private answers" PASS "no-store on account, admin and Nextcloud routes"; else record "No saved private answers" FAIL "missing on:$missing"; fi
+
+  # The web app's page: only this site's scripts may run, it can't be framed, and it's never kept, so an update reaches
+  # people at once. Its session cookie's flags are covered by the test suite, since seeing one here needs an account.
+  h="$(curl -s --max-time 15 -D - -o /dev/null "$url/" | tr -d '\r' | tr '[:upper:]' '[:lower:]')"
+  missing=""
+  grep -q '^content-type: text/html' <<<"$h" || missing+=" html-page"
+  grep -qE "^content-security-policy:.*script-src 'self'" <<<"$h" || missing+=" script-src"
+  grep -qE "^content-security-policy:.*frame-ancestors 'none'" <<<"$h" || missing+=" frame-ancestors"
+  if grep -qE "^content-security-policy:.*script-src[^;]*unsafe" <<<"$h"; then missing+=" (unsafe scripts allowed)"; fi
+  grep -q '^cache-control: no-store' <<<"$h" || missing+=" no-store"
+  if [ -z "$missing" ]; then record "Web app page" PASS "own scripts only, no framing, never kept"; else record "Web app page" FAIL "missing:$missing"; fi
+
+  # A signed-out person must be refused here too. No marker and no cookie, as a forged request from another site would be.
+  code="$(curl -s --max-time 15 -o /dev/null -w '%{http_code}' -X POST -H 'Content-Type: application/json' -d '{"kind":"title","query":"test"}' "$url/api/lookup")"
+  if [ "$code" = "401" ]; then record "Lookup needs sign-in" PASS "answers 401"; else record "Lookup needs sign-in" FAIL "answered $code"; fi
+
   # Protected routes must refuse anonymous requests.
   for p in /api/auth/me /api/nextcloud /api/admin/users /api/admin/status /api/admin/logs; do
     probed=$((probed + 1))
@@ -316,6 +340,7 @@ elif [ "$REQUIRE_CLEAN" = 1 ]; then
   echo "RESULT: PASS (the AI diff review is still to do)"
 else
   # Worded so a forgotten -- in "npm run security -- --commit", which npm swallows silently, can't look like approval.
-  echo "RESULT: PASS for $MODE_NOTE"
+  # It deliberately doesn't start with RESULT: PASS, which only a run with --commit prints.
+  echo "RESULT: CHECKS OK, NOT AN APPROVAL ($MODE_NOTE)"
 fi
 exit "$FAILED"

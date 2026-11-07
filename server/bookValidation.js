@@ -8,6 +8,9 @@ const MAX_NOTES = 20000;
 const MAX_NAMES = 20;
 const MAX_NAME = 200;
 const STATUSES = ['want', 'reading', 'finished'];
+// A book box holds at least two books, and the top limit only catches mistakes.
+const MIN_BOX = 2;
+const MAX_BOX = 1000;
 // A UUID, the id format phones generate, e.g. 3f2a9c1e-7b4d-4e8a-9f10-6c2d8e1b5a70.
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 // A calendar date such as 2026-11-04.
@@ -46,6 +49,69 @@ function isRealDate(text) {
 }
 
 /**
+ * Checks a book box's two counts.
+ * In: the total and read values sent, either of which may be missing.
+ * Out: { boxTotal, boxRead }, both null for an ordinary book, or null if they aren't valid.
+ * A read count with no box is refused, because it would add books to the stats out of nothing.
+ */
+function cleanBox(total, read) {
+  const boxTotal = total ?? null;
+  if (boxTotal === null) return (read ?? null) === null ? { boxTotal: null, boxRead: null } : null;
+  if (!Number.isInteger(boxTotal) || boxTotal < MIN_BOX || boxTotal > MAX_BOX) return null;
+  const boxRead = read ?? 0;
+  if (!Number.isInteger(boxRead) || boxRead < 0 || boxRead > boxTotal) return null;
+  return { boxTotal, boxRead };
+}
+
+/**
+ * Checks the optional titles of the books in a box.
+ * In: the value sent, and the box's size (null for an ordinary book).
+ * Out: a clean array, or null if it isn't valid. A box can't list more books than it holds, and only a box can list any.
+ * Titles are tidied like names, but each can be as long as a book's title.
+ */
+function cleanBoxTitles(value, boxTotal) {
+  const list = value ?? [];
+  if (!Array.isArray(list) || list.length > (boxTotal ?? 0)) return null;
+  const seen = new Set();
+  const titles = [];
+  for (const item of list) {
+    if (typeof item !== 'string') return null;
+    const title = item.trim();
+    if (title.length > MAX_TITLE) return null;
+    if (title && !seen.has(title.toLowerCase())) {
+      seen.add(title.toLowerCase());
+      titles.push(title);
+    }
+  }
+  return titles;
+}
+
+/**
+ * Checks the stars given to a book's categories.
+ * In: the value sent, and the book's clean category names.
+ * Out: [{ category, rating }] using the book's own spelling, or null if the format is wrong. A rating for a
+ * category no longer on the book is dropped rather than refused, because that's what removing a category does.
+ */
+function cleanCategoryRatings(value, categories) {
+  const list = value ?? [];
+  if (!Array.isArray(list) || list.length > MAX_NAMES) return null;
+  // Looks up in a Map, so a category named "__proto__" is ordinary text with no special meaning.
+  const names = new Map(categories.map((name) => [name.toLowerCase(), name]));
+  const seen = new Set();
+  const ratings = [];
+  for (const item of list) {
+    if (!item || typeof item !== 'object' || typeof item.category !== 'string') return null;
+    if (!Number.isInteger(item.rating) || item.rating < 1 || item.rating > 5) return null;
+    const key = item.category.trim().toLowerCase();
+    if (names.has(key) && !seen.has(key)) {
+      seen.add(key);
+      ratings.push({ category: names.get(key), rating: item.rating });
+    }
+  }
+  return ratings;
+}
+
+/**
  * Validates one incoming book.
  * In: whatever the client sent, and the current time (a Date).
  * Out: { book } with safe values, or { error } with the reason. A book marked
@@ -67,6 +133,7 @@ function validateBook(input, now) {
       book: {
         id: input.id.toLowerCase(), title: '', authors: [], categories: [], status: 'finished',
         rating: null, readDate: null, notes: '', updatedAt, deleted: true,
+        boxTotal: null, boxRead: null, boxTitles: [], categoryRatings: [],
       },
     };
   }
@@ -83,11 +150,17 @@ function validateBook(input, now) {
   if (readDate !== null && !isRealDate(readDate)) return { error: 'bad readDate' };
   const notes = input.notes ?? '';
   if (typeof notes !== 'string' || notes.length > MAX_NOTES) return { error: 'bad notes' };
+  const box = cleanBox(input.boxTotal, input.boxRead);
+  if (!box) return { error: 'bad box counts' };
+  const boxTitles = cleanBoxTitles(input.boxTitles, box.boxTotal);
+  if (!boxTitles) return { error: 'bad box titles' };
+  const categoryRatings = cleanCategoryRatings(input.categoryRatings, categories);
+  if (!categoryRatings) return { error: 'bad category ratings' };
 
   return {
     book: {
       id: input.id.toLowerCase(), title, authors, categories, status: input.status,
-      rating, readDate, notes, updatedAt, deleted: false,
+      rating, readDate, notes, updatedAt, deleted: false, ...box, boxTitles, categoryRatings,
     },
   };
 }

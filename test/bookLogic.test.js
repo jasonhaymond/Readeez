@@ -162,3 +162,117 @@ describe('stats', () => {
     expect(logic.computeStats([], 2026)).toMatchObject({ total: 0, averageRating: null, byYear: [] });
   });
 });
+
+describe('book boxes', () => {
+  const { parseBox, readCount, readDateForStatus: dateFor } = require('../lib/bookLogic');
+
+  // Stats count what was read from a box, whatever its status, and nothing for a box not started.
+  test('a box counts the books read from it', () => {
+    expect(readCount({ boxTotal: 7, boxRead: 3, status: 'reading' })).toBe(3);
+    expect(readCount({ boxTotal: 7, boxRead: 3, status: 'finished' })).toBe(3);
+    expect(readCount({ boxTotal: 7, boxRead: 0, status: 'want' })).toBe(0);
+    expect(readCount({ status: 'finished' })).toBe(1);
+    expect(readCount({ status: 'reading' })).toBe(0);
+  });
+
+  test('the stats add box counts into every total', () => {
+    const books = [
+      { status: 'finished', readDate: '2026-01-01', authors: ['A'], categories: ['X'] },
+      { status: 'reading', boxTotal: 7, boxRead: 3, readDate: '2026-02-01', authors: ['A'], categories: ['X'], rating: 4 },
+      { status: 'want', boxTotal: 5, boxRead: 0, authors: ['B'], categories: ['Y'] },
+    ];
+    const stats = logic.computeStats(books, 2026);
+    expect(stats.finished).toBe(4);
+    expect(stats.thisYear).toBe(4);
+    expect(stats.byYear).toEqual([{ label: '2026', count: 4 }]);
+    expect(stats.topAuthors).toEqual([{ label: 'A', count: 4 }]);
+    expect(stats.topCategories).toEqual([{ label: 'X', count: 4 }]);
+    expect(stats.reading).toBe(1);
+    expect(stats.want).toBe(1);
+    expect(stats.averageRating).toBe(4);
+  });
+
+  // A box being read needs a date for what's been read so far to count under.
+  test('a box with books read keeps a date, even before it\'s finished', () => {
+    expect(dateFor('reading', '2026-01-01', 2)).toBe('2026-01-01');
+    expect(dateFor('reading', '2026-01-01', 0)).toBeNull();
+    expect(dateFor('reading', null, 2)).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+  });
+
+  test.each([
+    ['', '', { boxTotal: null, boxRead: null }],
+    ['7', '', { boxTotal: 7, boxRead: 0 }],
+    ['7', '3', { boxTotal: 7, boxRead: 3 }],
+    [' 7 ', ' 7 ', { boxTotal: 7, boxRead: 7 }],
+  ])('box fields %j and %j are read correctly', (total, read, expected) => {
+    expect(parseBox(total, read)).toEqual(expected);
+  });
+
+  // New books start as finished, so a finished box left blank mustn't count as none read.
+  test('a finished box with the read count left blank counts them all, and a typed 0 stays 0', () => {
+    expect(parseBox('7', '', 'finished')).toEqual({ boxTotal: 7, boxRead: 7 });
+    expect(parseBox('7', '0', 'finished')).toEqual({ boxTotal: 7, boxRead: 0 });
+    expect(parseBox('7', '', 'reading')).toEqual({ boxTotal: 7, boxRead: 0 });
+    expect(parseBox('', '', 'finished')).toEqual({ boxTotal: null, boxRead: null });
+  });
+
+  test.each([['', '3'], ['1', ''], ['1001', ''], ['2.5', ''], ['abc', ''], ['7', '8'], ['7', '-1'], ['7', 'x']])('box fields %j and %j are a typing mistake', (total, read) => {
+    expect(parseBox(total, read).error).toBeTruthy();
+  });
+});
+
+describe('titles in a book box', () => {
+  const { boxTitlesProblem, searchBooks: search } = require('../lib/bookLogic');
+
+  test('more titles than the box holds is a mistake to point out', () => {
+    expect(boxTitlesProblem(['A', 'B', 'C'], 2)).toMatch(/3 titles.*2 books/);
+    expect(boxTitlesProblem(['A', 'B'], 2)).toBeNull();
+    expect(boxTitlesProblem(['A'], null)).toBeNull();
+  });
+
+  test('search finds a book by a title inside its box', () => {
+    const box = { title: 'Box Set', authors: [], categories: [], boxTitles: ['The Hidden One'], updatedAt: '2026-01-01' };
+    expect(search([box], 'hidden')).toEqual([box]);
+  });
+});
+
+describe('category ratings', () => {
+  const { categoryAverages, cleanCategoryRatings, emptyBook: blank, setCategoryRating } = require('../lib/bookLogic');
+
+  test('a new book has none, and is not a box', () => {
+    expect(blank()).toMatchObject({ categoryRatings: [], boxTotal: null, boxRead: null });
+  });
+
+  // Removing a category takes its stars with it, and spelling follows the book.
+  test('only valid stars for the book\'s own categories are kept', () => {
+    const cleaned = cleanCategoryRatings(
+      [{ category: 'fantasy', rating: 5 }, { category: 'Fantasy', rating: 1 }, { category: 'Gone', rating: 3 }, { category: 'Crime', rating: 6 }, null],
+      ['Fantasy', 'Crime']
+    );
+    expect(cleaned).toEqual([{ category: 'Fantasy', rating: 5 }]);
+  });
+
+  // Prototype pollution: an odd category name is only text.
+  test('a category called __proto__ is only text', () => {
+    expect(cleanCategoryRatings([{ category: '__proto__', rating: 2 }], ['__proto__'])).toEqual([{ category: '__proto__', rating: 2 }]);
+  });
+
+  test('stars can be set, replaced and cleared', () => {
+    let ratings = setCategoryRating([], 'Crime', 3);
+    ratings = setCategoryRating(ratings, 'crime', 5);
+    expect(ratings).toEqual([{ category: 'crime', rating: 5 }]);
+    expect(setCategoryRating(ratings, 'Crime', null)).toEqual([]);
+  });
+
+  test('averages are per category, highest first, ignoring case', () => {
+    const books = [
+      { categoryRatings: [{ category: 'Crime', rating: 2 }, { category: 'Fantasy', rating: 5 }] },
+      { categoryRatings: [{ category: 'crime', rating: 3 }] },
+      {},
+    ];
+    expect(categoryAverages(books)).toEqual([
+      { label: 'Fantasy', count: 5, ratings: 1 },
+      { label: 'Crime', count: 2.5, ratings: 2 },
+    ]);
+  });
+});

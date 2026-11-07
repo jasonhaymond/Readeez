@@ -2,15 +2,15 @@
 // Tells someone when reset codes were used on their account. Those codes come from an admin, who could use
 // one to sign in as them, so this is how they'd find out. The newest 20 dates are listed, with a count of any
 // older ones, so a second "here's a code to fix it" can't hide a first. It reappears whenever there's a newer reset than
-// this phone has shown, and after signing out and back in. The dates also stay in Settings. Dismissing it only
-// remembers that on this phone, and the record itself lives on the server, where nothing in the app clears it.
+// this device has shown, and after signing out and back in. The dates also stay in Settings. Dismissing it only
+// remembers that on this device, and the record itself lives on the server, where nothing in the app clears it.
 
 import React, { useEffect, useState } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Dialog } from './ui';
 import { useAuth } from '../contexts/AuthContext';
 
-/** Shows the dialog when there's a reset this phone hasn't shown yet. */
+/** Shows the dialog when there's a reset this device hasn't shown yet. */
 export default function ResetNotice() {
   const { user } = useAuth();
   const [visible, setVisible] = useState(false);

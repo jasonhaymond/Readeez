@@ -17,7 +17,10 @@ x-logging: &default-logging
 
 services:
   api:
-    build: .
+    # Built from the repo's top folder, because the image includes the web app, whose code lives there.
+    build:
+      context: ..
+      dockerfile: server/Dockerfile
     restart: unless-stopped
     # Only the settings the API uses, listed one by one, rather than all of .env. The backup
     # passphrase and the backup Nextcloud password are used only by scripts on the host, so someone
@@ -32,6 +35,9 @@ services:
       CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-}
       NEXTCLOUD_ALLOWED_PRIVATE_HOSTS: ${NEXTCLOUD_ALLOWED_PRIVATE_HOSTS:-}
       UPDATE_CHECK_REPO: ${UPDATE_CHECK_REPO:-}
+      BOOK_LOOKUP_ENABLED: ${BOOK_LOOKUP_ENABLED:-true}
+      BOOK_LOOKUP_CONTACT: ${BOOK_LOOKUP_CONTACT:-}
+      GOOGLE_BOOKS_API_KEY: ${GOOGLE_BOOKS_API_KEY:-}
     logging: *default-logging
     ports:
       # Localhost by default, so only a reverse proxy on this machine can reach the API.

@@ -31,6 +31,10 @@ function rowToBook(row) {
     rating: row.rating,
     readDate: row.read_date,
     notes: row.notes,
+    boxTotal: row.box_total,
+    boxRead: row.box_read,
+    boxTitles: row.box_titles,
+    categoryRatings: row.category_ratings,
     updatedAt: row.updated_at.toISOString(),
     deleted: row.deleted,
   };
@@ -87,16 +91,20 @@ function createSyncRouter() {
         // primary key includes user_id, so the same id from another account is a
         // separate row and can't touch this person's book.
         const { rowCount } = await client.query(
-          `insert into books (user_id, id, title, authors, categories, status, rating, read_date, notes, updated_at, deleted)
-           values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+          `insert into books (user_id, id, title, authors, categories, status, rating, read_date, notes, updated_at, deleted,
+                              box_total, box_read, box_titles, category_ratings)
+           values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15::jsonb)
            on conflict (user_id, id) do update set
              title = excluded.title, authors = excluded.authors, categories = excluded.categories,
              status = excluded.status, rating = excluded.rating, read_date = excluded.read_date,
              notes = excluded.notes, updated_at = excluded.updated_at, deleted = excluded.deleted,
+             box_total = excluded.box_total, box_read = excluded.box_read, box_titles = excluded.box_titles,
+             category_ratings = excluded.category_ratings,
              seq = nextval('books_seq')
            where excluded.updated_at > books.updated_at`,
           [req.user.id, book.id, book.title, book.authors, book.categories, book.status, book.rating,
-            book.readDate, book.notes, book.updatedAt, book.deleted]
+            book.readDate, book.notes, book.updatedAt, book.deleted, book.boxTotal, book.boxRead, book.boxTitles,
+            JSON.stringify(book.categoryRatings)]
         );
         if (rowCount === 0) lostIds.push(book.id);
       }

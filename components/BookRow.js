@@ -1,6 +1,6 @@
 // components/BookRow.js
-// One book in a list (the library and search results): title, authors, rating and
-// date. Tapping it opens the book.
+// One book in a list (the library and search results): title, authors, rating, date,
+// and how far through a book box someone is. Tapping it opens the book.
 
 import React from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
@@ -32,7 +32,9 @@ export default function BookRow({ book }) {
       ) : null}
       <View style={styles.meta}>
         {book.rating ? <Stars value={book.rating} size={14} /> : null}
-        <Text style={[styles.date, { color: colors.muted }]} numberOfLines={1}>{status || formatDate(book.readDate)}</Text>
+        <Text style={[styles.date, { color: colors.muted }]} numberOfLines={1}>
+          {book.boxTotal ? `Box: ${book.boxRead} of ${book.boxTotal} read · ` : ''}{status || formatDate(book.readDate)}
+        </Text>
       </View>
     </Pressable>
   );

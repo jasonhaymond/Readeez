@@ -1,18 +1,21 @@
 // screens/SignInScreen.js
 // Everything before someone is signed in, on one screen with three modes: sign in, create
 // an account with an invite code, and set a new password with a reset code. There's no
-// public sign-up: an admin issues the codes. The server address is built into the app and
-// stays out of the way, tucked behind a link for the rare case it needs changing.
+// public sign-up: an admin issues the codes. On a phone the server address is built into the app and
+// stays out of the way, tucked behind a link for the rare case it needs changing. A browser uses the
+// server that gave it the page, so it never shows that.
 
 import React, { useState } from 'react';
-import { Image, KeyboardAvoidingView, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Image, KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Background from '../components/Background';
 import { Button, Field, Message } from '../components/ui';
 import { useAuth } from '../contexts/AuthContext';
 import { useTheme } from '../contexts/ThemeContext';
 import * as api from '../lib/api';
+import { useRevealFocusedField } from '../lib/useRevealFocusedField';
 
+const IS_WEB = Platform.OS === 'web';
 const TITLES = { signIn: 'Sign in', invite: 'Create your account', reset: 'Set a new password' };
 
 /** The sign-in screen. */
@@ -20,10 +23,11 @@ export default function SignInScreen() {
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
   const { signIn, redeem } = useAuth();
+  const { scrollRef, onScroll, reveal } = useRevealFocusedField();
   const [mode, setMode] = useState('signIn');
   const [fields, setFields] = useState({ email: '', password: '', name: '', code: '' });
   const [server, setServer] = useState(api.getServerUrl());
-  const [showServer, setShowServer] = useState(!api.getServerUrl());
+  const [showServer, setShowServer] = useState(!IS_WEB && !api.getServerUrl());
   const [error, setError] = useState(null);
   const [notice, setNotice] = useState(null);
   const [busy, setBusy] = useState(false);
@@ -67,7 +71,7 @@ export default function SignInScreen() {
   return (
     <Background>
       <KeyboardAvoidingView behavior="padding" style={styles.fill}>
-        <ScrollView contentContainerStyle={[styles.content, { paddingTop: insets.top + 40, paddingBottom: insets.bottom + 24 }]} keyboardShouldPersistTaps="handled">
+        <ScrollView ref={scrollRef} onScroll={onScroll} scrollEventThrottle={32} contentContainerStyle={[styles.content, { paddingTop: insets.top + 40, paddingBottom: insets.bottom + 24 }]} keyboardShouldPersistTaps="handled">
           {/* The name directly below says what this is, so screen readers skip the picture. */}
           <Image source={require('../assets/logo-mark.png')} style={styles.logo} accessible={false} />
           <Text style={[styles.brand, { color: colors.accent }]} accessibilityRole="header">Readeez</Text>
@@ -75,10 +79,11 @@ export default function SignInScreen() {
           <Message text={error} />
           <Message text={notice} kind="info" />
 
-          {mode !== 'signIn' ? <Field label={mode === 'invite' ? 'Invite code' : 'Reset code'} value={fields.code} onChangeText={set('code')} autoCapitalize="characters" autoCorrect={false} placeholder="XXXX-XXXX-XXXX-XXXX" /> : null}
-          {mode === 'invite' ? <Field label="Your name" value={fields.name} onChangeText={set('name')} autoCapitalize="words" autoComplete="name" /> : null}
-          {mode !== 'reset' ? <Field label="Email" value={fields.email} onChangeText={set('email')} autoCapitalize="none" autoCorrect={false} autoComplete="email" keyboardType="email-address" /> : null}
+          {mode !== 'signIn' ? <Field onFocus={reveal} label={mode === 'invite' ? 'Invite code' : 'Reset code'} value={fields.code} onChangeText={set('code')} autoCapitalize="characters" autoCorrect={false} placeholder="XXXX-XXXX-XXXX-XXXX" /> : null}
+          {mode === 'invite' ? <Field onFocus={reveal} label="Your name" value={fields.name} onChangeText={set('name')} autoCapitalize="words" autoComplete="name" /> : null}
+          {mode !== 'reset' ? <Field onFocus={reveal} label="Email" value={fields.email} onChangeText={set('email')} autoCapitalize="none" autoCorrect={false} autoComplete="email" keyboardType="email-address" /> : null}
           <Field
+            onFocus={reveal}
             label={mode === 'signIn' ? 'Password' : 'New password'}
             value={fields.password}
             onChangeText={set('password')}
@@ -88,7 +93,7 @@ export default function SignInScreen() {
             hint={mode === 'signIn' ? null : 'At least 10 characters.'}
             onSubmitEditing={submit}
           />
-          {showServer ? <Field label="Server address" value={server} onChangeText={setServer} autoCapitalize="none" autoCorrect={false} keyboardType="url" placeholder="https://" /> : null}
+          {showServer ? <Field onFocus={reveal} label="Server address" value={server} onChangeText={setServer} autoCapitalize="none" autoCorrect={false} keyboardType="url" placeholder="https://" /> : null}
 
           <Button label={TITLES[mode]} onPress={submit} busy={busy} />
 
@@ -96,7 +101,7 @@ export default function SignInScreen() {
             {mode === 'signIn' ? <TextLink label="I have an invite code" onPress={() => switchMode('invite')} /> : null}
             {mode === 'signIn' ? <TextLink label="I have a password reset code" onPress={() => switchMode('reset')} /> : null}
             {mode !== 'signIn' ? <TextLink label="Back to sign in" onPress={() => switchMode('signIn')} /> : null}
-            {!showServer ? <TextLink label="Change server" onPress={() => setShowServer(true)} /> : null}
+            {!showServer && !IS_WEB ? <TextLink label="Change server" onPress={() => setShowServer(true)} /> : null}
           </View>
           {mode === 'signIn' ? (
             <Text style={[styles.help, { color: colors.muted }]}>Forgot your password or need an account? Ask your family's Readeez admin for a code.</Text>

@@ -4,7 +4,7 @@
 // the mobile app imports the same file for its share-sheet export. It must stay
 // free of server-only code (no database, no Node modules) for that reason.
 
-const CSV_COLUMNS = ['Title', 'Authors', 'Categories', 'Status', 'Rating', 'Read date', 'Notes', 'Last updated'];
+const CSV_COLUMNS = ['Title', 'Authors', 'Categories', 'Status', 'Rating', 'Category ratings', 'Books in box', 'Box books read', 'Titles in box', 'Read date', 'Notes', 'Last updated'];
 const STATUS_LABELS = { want: 'Want to read', reading: 'Reading', finished: 'Finished' };
 
 /**
@@ -33,6 +33,11 @@ function toCsv(books) {
     (book.categories || []).join('; '),
     STATUS_LABELS[book.status] || book.status,
     book.rating ?? '',
+    // Written like "Fantasy: 5; Romance: 3", which reads naturally in a spreadsheet cell.
+    (book.categoryRatings || []).map((item) => `${item.category}: ${item.rating}`).join('; '),
+    book.boxTotal ?? '',
+    book.boxRead ?? '',
+    (book.boxTitles || []).join('; '),
     book.readDate ?? '',
     book.notes ?? '',
     book.updatedAt ?? '',
@@ -53,6 +58,10 @@ function toJson(books, appVersion, exportedAt) {
     categories: book.categories || [],
     status: book.status,
     rating: book.rating ?? null,
+    categoryRatings: book.categoryRatings || [],
+    boxTotal: book.boxTotal ?? null,
+    boxRead: book.boxRead ?? null,
+    boxTitles: book.boxTitles || [],
     readDate: book.readDate ?? null,
     notes: book.notes ?? '',
     updatedAt: book.updatedAt,

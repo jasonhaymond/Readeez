@@ -12,6 +12,9 @@ const pool = require('./db');
 // only in the test suite, where hundreds of hashes would otherwise take minutes.
 const BCRYPT_ROUNDS = process.env.NODE_ENV === 'test' ? 4 : 12;
 const SESSION_DAYS = 90;
+// How long a browser stays signed in after it was last used. Longer than a phone's, as chosen for this family's own
+// computers. On a shared computer, someone has to sign out to protect their account.
+const WEB_SESSION_DAYS = 365;
 const INVITE_DAYS = 7;
 const RESET_HOURS = 24;
 const RESET_HISTORY_SHOWN = 20;
@@ -53,7 +56,7 @@ const sha256 = (value) => crypto.createHash('sha256').update(value).digest('hex'
 
 /**
  * Starts a session for a device.
- * In: the user's id and, for a sign-in, the password hash that was just checked.
+ * In: the user's id, for a sign-in the password hash that was just checked, and optionally { web: true } for a browser.
  * Out: the token to give the device (shown nowhere else), or null if that hash is no longer current or the
  * account is disabled.
  * Side effects: inserts a sessions row holding only the token's hash.
@@ -64,13 +67,13 @@ const sha256 = (value) => crypto.createHash('sha256').update(value).digest('hex'
  * for any password change in progress, then look at the new hash. A session made just before a change
  * is removed by that change.
  */
-async function createSession(userId, passwordHash = null) {
+async function createSession(userId, passwordHash = null, { web = false } = {}) {
   const token = crypto.randomBytes(32).toString('base64url');
   const { rowCount } = await pool.query(
-    `insert into sessions (token_hash, user_id, expires_at)
-     select $1, id, now() + make_interval(days => $3) from users
+    `insert into sessions (token_hash, user_id, expires_at, web)
+     select $1, id, now() + make_interval(days => $3), $5 from users
       where id = $2 and disabled_at is null and ($4::text is null or password_hash = $4) for share`,
-    [sha256(token), userId, SESSION_DAYS, passwordHash]
+    [sha256(token), userId, web ? WEB_SESSION_DAYS : SESSION_DAYS, passwordHash, web]
   );
   return rowCount ? token : null;
 }
@@ -141,20 +144,75 @@ async function deleteSessions(userId, exceptToken = null) {
 }
 
 /**
+ * The name of the browser's session cookie. In production it starts with __Host-, which makes a browser refuse the
+ * cookie unless it's Secure, set by this exact host, and covers the whole site, so another site on a sibling address
+ * can't plant or overwrite it. That prefix needs HTTPS, so development uses a plain name.
+ */
+const webCookieName = () => (process.env.NODE_ENV === 'production' ? '__Host-readeez_session' : 'readeez_session');
+
+/**
+ * The settings for that cookie.
+ * httpOnly: page scripts can't read it, so a script injected into the page couldn't steal the session.
+ * secure: it's only ever sent over HTTPS. sameSite strict: a browser won't send it on requests started by another
+ * website.
+ */
+const webCookieOptions = () => ({ httpOnly: true, secure: process.env.NODE_ENV === 'production', sameSite: 'strict', path: '/' });
+
+/**
+ * Sets the session cookie. In: the response and the token. The browser keeps it through restarts until the same
+ * date the server's session ends, so the two can't disagree about whether someone is signed in.
+ */
+function setWebCookie(res, token) {
+  res.cookie(webCookieName(), token, { ...webCookieOptions(), maxAge: WEB_SESSION_DAYS * 24 * 3600 * 1000 });
+}
+
+/**
+ * Finds the session cookie among those a browser sent.
+ * In: the request. Out: the cookie's value, or ''. Splits the header by hand, because this is the only cookie the
+ * app uses, so it doesn't justify a new dependency.
+ */
+function readWebCookie(req) {
+  const wanted = `${webCookieName()}=`;
+  const found = String(req.get('cookie') || '').split(';').map((part) => part.trim()).find((part) => part.startsWith(wanted));
+  return found ? found.slice(wanted.length) : '';
+}
+
+/**
+ * Says whether a request really comes from Readeez's own web page. Defends against cross-site request forgery, where
+ * another website makes a visitor's browser send a request that the browser would sign in automatically.
+ * Two checks, on top of the cookie's sameSite setting: another website's page can't add a custom header without the
+ * server's permission, which CORS withholds, and modern browsers state where a request started in Sec-Fetch-Site.
+ * In: the request. Out: true or false.
+ */
+function isOwnWebPage(req) {
+  if (req.get('x-readeez-client') !== 'web') return false;
+  const site = req.get('sec-fetch-site');
+  return !site || site === 'same-origin';
+}
+
+/**
  * Middleware: lets a request through only with a valid session. Protects every
- * route that isn't deliberately public. Answers 401 otherwise.
- * In: the "Authorization: Bearer <token>" header. Out: sets req.user and req.token.
- * Side effects: extends a session's expiry, at most once a day, so a phone in
+ * route that isn't deliberately public. Answers 401 otherwise, or 403 for a browser request that changes
+ * something without coming from Readeez's own page.
+ * In: the "Authorization: Bearer <token>" header from a phone, or the session cookie from a browser.
+ * Out: sets req.user and req.token.
+ * Side effects: extends a session's expiry, at most once a day, so a device in
  * regular use stays signed in while an abandoned one expires.
  */
 async function requireAuth(req, res, next) {
   const header = req.get('authorization') || '';
-  const token = header.startsWith('Bearer ') ? header.slice(7) : '';
+  const bearer = header.startsWith('Bearer ') ? header.slice(7) : '';
+  const token = bearer || readWebCookie(req);
   if (!token) return res.status(401).json({ error: 'Please sign in.' });
+  // Only a cookie is sent automatically by a browser, so only a cookie needs this. Reads change nothing, and another
+  // website can't see their answers.
+  if (!bearer && !['GET', 'HEAD'].includes(req.method) && !isOwnWebPage(req)) {
+    return res.status(403).json({ error: 'That request wasn\'t allowed.' });
+  }
 
   // Finds the session only if it's unexpired and its account isn't disabled.
   const { rows } = await pool.query(
-    `select u.id, u.email, u.display_name, u.role, s.last_used_at
+    `select u.id, u.email, u.display_name, u.role, s.last_used_at, s.web
        from sessions s join users u on u.id = s.user_id
       where s.token_hash = $1 and s.expires_at > now() and u.disabled_at is null`,
     [sha256(token)]
@@ -164,8 +222,10 @@ async function requireAuth(req, res, next) {
   if (Date.now() - rows[0].last_used_at.getTime() > 24 * 3600 * 1000) {
     await pool.query(
       `update sessions set last_used_at = now(), expires_at = now() + make_interval(days => $2) where token_hash = $1`,
-      [sha256(token), SESSION_DAYS]
+      [sha256(token), rows[0].web ? WEB_SESSION_DAYS : SESSION_DAYS]
     );
+    // Moves the browser's date forward too, or the cookie would run out a year after signing in, however often it's used.
+    if (rows[0].web && !bearer) setWebCookie(res, token);
   }
   req.user = rows[0];
   req.token = token;
@@ -306,6 +366,10 @@ async function adminStillValid(client, userId, token) {
 }
 
 module.exports = {
+  webCookieName,
+  webCookieOptions,
+  setWebCookie,
+  isOwnWebPage,
   lockResetAccount,
   applyNewPassword,
   sessionStillValid,

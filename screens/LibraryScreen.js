@@ -3,7 +3,7 @@
 // optional filter by author, category or rating. Pulling down syncs with the server.
 
 import React, { useMemo, useState } from 'react';
-import { FlatList, Modal, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { FlatList, Modal, Platform, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Ionicons from '@expo/vector-icons/Ionicons';
@@ -33,6 +33,10 @@ export default function LibraryScreen() {
   const shown = useMemo(() => filterBooks(books, { status, ...filters }), [books, status, filters]);
   const activeFilters = [filters.author, filters.category, filters.rating !== null ? 'rating' : null].filter(Boolean).length;
 
+  // A problem shows above the list, because adding a book mustn't hide it. A browser that couldn't download the library
+  // has nothing to show yet, so "offline" counts as a problem there. On a phone it's normal, and its books are all there.
+  const problem = sync.state === 'error' || (!ready && sync.state === 'offline') ? sync.message : null;
+
   // A quiet note appears only when something's worth knowing: books waiting to sync.
   const syncNote = pendingCount > 0 && sync.state !== 'syncing'
     ? `${pendingCount} ${pendingCount === 1 ? 'change' : 'changes'} waiting to sync`
@@ -54,6 +58,13 @@ export default function LibraryScreen() {
           <Text style={{ color: colors.muted, fontSize: 13 }}>{syncNote}</Text>
         </View>
       ) : null}
+      {problem ? (
+        <View style={styles.problem}>
+          <Message text={problem} />
+          {/* Only a browser can be retried from here. A phone that can't read its own storage needs a restart, as it says. */}
+          {!ready && Platform.OS === 'web' ? <Button label="Try again" kind="secondary" onPress={syncNow} /> : null}
+        </View>
+      ) : null}
       <FlatList
         data={shown}
         keyExtractor={(book) => book.id}
@@ -67,7 +78,7 @@ export default function LibraryScreen() {
             onAdd={() => navigation.navigate('Book')}
             onClear={() => { setStatus(null); setFilters({ author: null, category: null, rating: null }); }}
           />
-        ) : <Message text={sync.state === 'error' ? sync.message : null} />}
+        ) : null}
       />
       <FilterSheet visible={filterOpen} books={books} filters={filters} onChange={setFilters} onClose={() => setFilterOpen(false)} />
     </Screen>
@@ -116,6 +127,7 @@ function FilterSheet({ visible, books, filters, onChange, onClose }) {
                 onPress={() => toggle('rating', n)}
                 accessibilityRole="button"
                 accessibilityState={{ selected: filters.rating === n }}
+                aria-pressed={filters.rating === n}
                 style={[styles.ratingChoice, { borderColor: filters.rating === n ? colors.accent : colors.border }]}
               >
                 <Stars value={n} size={13} />
@@ -144,6 +156,7 @@ function FilterSheet({ visible, books, filters, onChange, onClose }) {
 const styles = StyleSheet.create({
   filterBar: { flexGrow: 0 },
   chips: { paddingHorizontal: 12, paddingBottom: 8, gap: 6, alignItems: 'center' },
+  problem: { paddingHorizontal: 16, paddingBottom: 8 },
   note: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 16, paddingBottom: 6 },
   list: { paddingHorizontal: 12, paddingBottom: 32, flexGrow: 1 },
   empty: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 32, gap: 10 },

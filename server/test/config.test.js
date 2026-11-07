@@ -154,6 +154,17 @@ describe('CSV exports', () => {
     expect(csv).toContain('"line1\nline2"');
   });
 
+  // Everything on a book reaches the export, including box counts and category ratings.
+  test('box counts and category ratings are exported', () => {
+    const book = makeBook({ categories: ['Fantasy'], categoryRatings: [{ category: 'Fantasy', rating: 5 }], boxTotal: 7, boxRead: 3 });
+    expect(toCsv([book])).toContain('Fantasy: 5,7,3,');
+    expect(toCsv([{ ...book, boxTitles: ['One', 'Two'] }])).toContain('Fantasy: 5,7,3,One; Two,');
+    // CSV formula injection: a title in a box is neutralised like any other cell.
+    expect(toCsv([{ ...book, boxTitles: ['=HYPERLINK("http://evil")'] }])).toContain("'=HYPERLINK");
+    const [saved] = JSON.parse(toJson([book], '1.0.0', 'now')).books;
+    expect(saved).toMatchObject({ categoryRatings: [{ category: 'Fantasy', rating: 5 }], boxTotal: 7, boxRead: 3 });
+  });
+
   // Deleted books stay out of both formats.
   test('deleted books are left out', () => {
     const books = [makeBook({ title: 'Live' }), makeBook({ title: 'Gone', deleted: true })];

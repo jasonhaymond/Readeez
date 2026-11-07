@@ -197,7 +197,7 @@ export default function ServerScreen() {
       <Dialog
         visible={updateOpen}
         title={`Update to v${status?.latestVersion}?`}
-        message="The server backs up first, then restarts, so sync pauses for a minute or two. Books stay usable on phones. Remember to give the family the matching app version."
+        message="The server backs up first, then restarts, so sync pauses for a minute or two. Books stay usable on phones, while the browser version waits for the server to return. Remember to give the family the matching app version."
         confirmLabel="Update"
         onConfirm={() => { if (typed === 'UPDATE') confirmUpdate(); }}
         onCancel={() => { setUpdateOpen(false); setTyped(''); }}

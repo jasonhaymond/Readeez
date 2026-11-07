@@ -6,6 +6,59 @@ All notable changes to Readeez are recorded here. The format follows
 
 [Back to the README](README.md)
 
+## [1.1.0] - 2026-11-06
+
+### Added
+
+- **A web app**: the full app in a browser, with the same screens as Android, including the family and server panels for
+  admins. The server serves it from its own address, so there's nothing extra to host or proxy. It needs a connection:
+  books stay in the open page rather than being stored in the browser, and a change that can't reach the server is
+  refused and undone. Exports download as files.
+- **Choose saved authors and categories** on the book form, without typing.
+- **Online title and author suggestions** while adding a book, from Open Library. Choosing a title fills in its
+  authors. Google Books can be added as a backup by setting `GOOGLE_BOOKS_API_KEY` on the server. Lookups go through
+  the server, are limited per account, and can be turned off in Settings or for everyone with `BOOK_LOOKUP_ENABLED=false`.
+  Kindle isn't the source because Amazon's API requires affiliate sales, and its licence doesn't cover an app like this.
+- **Category ratings**: optional stars for each of a book's categories, averaged per category in Stats.
+- **Book boxes**: one title with a count of the books inside and how many are read. Each book read counts in Stats,
+  even before the box is finished. Listing the titles inside is optional, and off until chosen in Settings.
+- Exports and imports carry category ratings, box counts and box titles. Older export files still import.
+
+### Changed
+
+- The Stats tile "Finished" is now "Books read", since a box counts for each book read from it.
+- The server's Docker image is now built from the repo's top folder, because it includes the web app. The build takes
+  longer, and the running image gains only the finished web files.
+- On Android, the field being typed in now scrolls above the keyboard on the book, sign-in and Nextcloud forms. Fields low
+  on a form could otherwise sit hidden behind it.
+- The Library screen now shows a load or sync error above the list, however many books there are. Earlier, it
+  disappeared once the list had a book.
+
+### Security
+
+- Browser sessions use a cookie page scripts can't read (`HttpOnly`, `Secure`, `SameSite=Strict`, `__Host-` prefix). A browser
+  stays signed in for 365 days after it was last used, so anyone on a shared computer needs to sign out. Requests that
+  change something must also prove they come from Readeez's own page, which stops forged requests from other websites,
+  including forged sign-ins. If the server can't be reached at sign-out, the browser says so and stays signed in, rather
+  than showing the sign-in screen with the session still valid.
+- Web pages have a strict content policy allowing only this site's own scripts. The API keeps its "allow nothing" policy.
+- Disabling an account now cancels any unused reset code made for it earlier, so an old code can't take the account over
+  once it's enabled again. A code made after disabling still works, as the admin guide's lockout steps need.
+- A sync still running at sign-out can no longer write the person's encrypted books back to the phone.
+- A brief Keystore failure no longer looks like damaged books, which cleared the sync position and could replace unsent
+  edits with the server's copies. It now reports the failure and changes nothing.
+- Exporting or importing after a failed load is now refused. It would have made an empty export, or planned an import against an empty list.
+- Android 13 and later no longer keep a picture of the app in the recent-apps screen, which could show notes. They show a
+  blank card once the app is in the background.
+- A file that won't delete no longer stops the other leftover export files being removed.
+- The live security check now also covers the web page's policy, the no-store rule on private routes, and the lookup route.
+  A work-in-progress gate run no longer prints a result beginning `RESULT: PASS`, so it can't be mistaken for an approval.
+
+### Schema
+
+- `004_boxes_ratings_web_sessions.sql` adds `books.box_total`, `books.box_read`, `books.box_titles`, `books.category_ratings` and
+  `sessions.web`. All are additions, so rolling back the code to 1.0.3 is safe without restoring the database.
+
 ## [1.0.3] - 2026-11-05
 
 The first release to be deployed. Versions 1.0.0 to 1.0.2 were pushed, but never tagged or deployed.

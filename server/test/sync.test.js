@@ -255,3 +255,135 @@ describe('hostile and malformed input', () => {
     expect(JSON.stringify(res.body)).not.toMatch(/node_modules|SyntaxError|Unexpected|\.js:\d+/);
   });
 });
+
+describe('book boxes', () => {
+  // A box's counts travel between devices like any other field.
+  test('the counts reach another device', async () => {
+    const book = makeBook({ boxTotal: 7, boxRead: 3 });
+    await sync({ changes: [book] });
+    const res = await sync({ cursor: '0' });
+    expect(res.body.changes[0]).toMatchObject({ boxTotal: 7, boxRead: 3 });
+  });
+
+  // An ordinary book, or one from an older app version that doesn't send these, stays an ordinary book.
+  test('a book without counts is an ordinary book', async () => {
+    const book = makeBook();
+    expect((await sync({ changes: [book] })).body.rejected).toEqual([]);
+    const res = await sync({ cursor: '0' });
+    expect(res.body.changes[0]).toMatchObject({ boxTotal: null, boxRead: null, categoryRatings: [] });
+  });
+
+  // Stats add these counts up, so impossible values would falsify them, and must be refused by the server, which
+  // doesn't trust what a client sends.
+  test.each([
+    ['more read than the box holds', { boxTotal: 3, boxRead: 4 }],
+    ['a negative read count', { boxTotal: 3, boxRead: -1 }],
+    ['a box of one', { boxTotal: 1, boxRead: 0 }],
+    ['a huge box', { boxTotal: 1001, boxRead: 0 }],
+    ['a read count with no box', { boxRead: 2 }],
+    ['fractions', { boxTotal: 2.5, boxRead: 1 }],
+    ['text', { boxTotal: '5', boxRead: 1 }],
+  ])('%s is refused', async (_name, fields) => {
+    const res = await sync({ changes: [makeBook(fields)] });
+    expect(res.body.rejected).toHaveLength(1);
+    expect(res.body.rejected[0].error).toBe('bad box counts');
+  });
+
+  // A missing read count means none read yet.
+  test('a box with no read count starts at zero', async () => {
+    await sync({ changes: [makeBook({ boxTotal: 4 })] });
+    expect((await sync({ cursor: '0' })).body.changes[0].boxRead).toBe(0);
+  });
+
+  // A deleted book's details don't linger, including these.
+  test('deleting a box empties its counts', async () => {
+    const book = makeBook({ boxTotal: 4, boxRead: 1, categories: ['A'], categoryRatings: [{ category: 'A', rating: 2 }] });
+    await sync({ changes: [book] });
+    await sync({ changes: [{ ...book, deleted: true, updatedAt: '2026-11-05T00:00:00.000Z' }] });
+    expect((await sync({ cursor: '0' })).body.changes[0]).toMatchObject({ boxTotal: null, boxRead: null, categoryRatings: [] });
+  });
+});
+
+describe('titles in a book box', () => {
+  test('they reach another device, with commas kept', async () => {
+    await sync({ changes: [makeBook({ boxTotal: 3, boxRead: 0, boxTitles: ['Love, Actually', 'Second'] })] });
+    expect((await sync({ cursor: '0' })).body.changes[0].boxTitles).toEqual(['Love, Actually', 'Second']);
+  });
+
+  // Listing titles is optional, so a box with none is normal.
+  test('a box with no titles has an empty list', async () => {
+    await sync({ changes: [makeBook({ boxTotal: 3 })] });
+    expect((await sync({ cursor: '0' })).body.changes[0].boxTitles).toEqual([]);
+  });
+
+  // The server doesn't trust what a client sends about their format, number or size.
+  test.each([
+    ['more titles than the box holds', { boxTotal: 2, boxTitles: ['A', 'B', 'C'] }],
+    ['titles on an ordinary book', { boxTitles: ['A'] }],
+    ['not a list', { boxTotal: 2, boxTitles: 'A' }],
+    ['an object for a title', { boxTotal: 2, boxTitles: [{ $ne: 1 }] }],
+    ['an oversized title', { boxTotal: 2, boxTitles: ['x'.repeat(501)] }],
+  ])('%s is refused', async (_name, fields) => {
+    const res = await sync({ changes: [makeBook(fields)] });
+    expect(res.body.rejected[0].error).toBe('bad box titles');
+  });
+
+  // Injection: titles are only ever passed as parameters, never as SQL.
+  test('an injection attempt is stored as plain text', async () => {
+    const title = "x'); drop table books; --";
+    await sync({ changes: [makeBook({ boxTotal: 2, boxTitles: [title] })] });
+    expect((await sync({ cursor: '0' })).body.changes[0].boxTitles).toEqual([title]);
+  });
+
+  // A deleted book's details don't linger on the server.
+  test('deleting a box empties its titles', async () => {
+    const book = makeBook({ boxTotal: 2, boxTitles: ['Secret title'] });
+    await sync({ changes: [book] });
+    await sync({ changes: [{ ...book, deleted: true, updatedAt: '2026-11-05T00:00:00.000Z' }] });
+    expect((await sync({ cursor: '0' })).body.changes[0].boxTitles).toEqual([]);
+  });
+});
+
+describe('category ratings', () => {
+  test('they reach another device', async () => {
+    const book = makeBook({ categories: ['Fantasy', 'Romance'], categoryRatings: [{ category: 'Fantasy', rating: 5 }, { category: 'Romance', rating: 3 }] });
+    await sync({ changes: [book] });
+    expect((await sync({ cursor: '0' })).body.changes[0].categoryRatings).toEqual([{ category: 'Fantasy', rating: 5 }, { category: 'Romance', rating: 3 }]);
+  });
+
+  // Removing a category from a book takes its stars with it, and spelling follows the book's list.
+  test('a rating for a category not on the book is dropped, and spelling is matched', async () => {
+    const book = makeBook({ categories: ['Fantasy'], categoryRatings: [{ category: 'fantasy ', rating: 4 }, { category: 'Gone', rating: 1 }] });
+    await sync({ changes: [book] });
+    expect((await sync({ cursor: '0' })).body.changes[0].categoryRatings).toEqual([{ category: 'Fantasy', rating: 4 }]);
+  });
+
+  // Prototype pollution: names like these must stay ordinary text.
+  test('a category named __proto__ is only text', async () => {
+    const book = makeBook({ categories: ['__proto__'], categoryRatings: [{ category: '__proto__', rating: 4 }] });
+    await sync({ changes: [book] });
+    expect((await sync({ cursor: '0' })).body.changes[0].categoryRatings).toEqual([{ category: '__proto__', rating: 4 }]);
+    expect({}.rating).toBeUndefined();
+  });
+
+  // The database column holds JSON, so its shape must be checked before it gets there.
+  test.each([
+    ['a rating of 6', [{ category: 'Fiction', rating: 6 }]],
+    ['a rating of 0', [{ category: 'Fiction', rating: 0 }]],
+    ['text for a rating', [{ category: 'Fiction', rating: '5' }]],
+    ['an object for a name', [{ category: { $ne: 1 }, rating: 5 }]],
+    ['not a list', { Fiction: 5 }],
+    ['too many', Array.from({ length: 21 }, () => ({ category: 'Fiction', rating: 5 }))],
+    ['a null entry', [null]],
+  ])('%s is refused', async (_name, categoryRatings) => {
+    const res = await sync({ changes: [makeBook({ categoryRatings })] });
+    expect(res.body.rejected[0].error).toBe('bad category ratings');
+  });
+
+  // Injection: text in a rating's name is only ever passed as a parameter, never as SQL.
+  test('an injection attempt in a name is stored as plain text', async () => {
+    const name = "x'); drop table books; --";
+    await sync({ changes: [makeBook({ categories: [name], categoryRatings: [{ category: name, rating: 3 }] })] });
+    expect((await sync({ cursor: '0' })).body.changes[0].categoryRatings[0].category).toBe(name);
+  });
+});

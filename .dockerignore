@@ -1,0 +1,21 @@
+# .dockerignore
+# What Docker leaves out when it builds server/Dockerfile from this folder. Mainly this keeps secrets and backups out of
+# the image, including the top-level .env, which holds the build server's API key.
+**/.env
+**/.env.*
+!**/.env.example
+server/backups/
+server/test/
+server/docker-compose*.yml
+**/*.sh
+**/node_modules/
+.git/
+.expo/
+dist/
+dist-android/
+android/
+ios/
+security-reports/
+.security-private-patterns
+docs/
+test/

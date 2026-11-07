@@ -31,7 +31,8 @@ deployed to a production host yet, so the reverse-proxy and firewall steps are u
 
 Two Docker containers: the API (`api`) and its own Postgres (`postgres`). The API listens on a
 private port, and your reverse proxy provides HTTPS in front of it. The database has no published
-port at all.
+port at all. The `api` container also serves the web app, so the same address opens it in a browser, with nothing extra
+to host. The image takes several minutes to build the first time, because it builds the web app too.
 
 What holds data: the Postgres volume `readeez_pg_data`, and `server/.env`, which holds secrets.
 Everything else comes from git.
@@ -156,6 +157,14 @@ This reaches the same end state as the script.
    ```
 
    Success: `{"status":"ok"}`.
+
+   Also check the web app is being served:
+
+   ```bash
+   curl -s http://127.0.0.1:3020/ | grep -o '<title>Readeez</title>'
+   ```
+
+   Success: `<title>Readeez</title>`.
 
 7. **Schedule the nightly backup and the helper.** The helper is what makes the app's Back up now and
    Update buttons work. It opens no network port. Run `crontab -e` and add these two lines, using your
@@ -290,13 +299,13 @@ Success: `RESULT: PASS`.
 
 ## 6. Create your account and invite the family
 
-1. Install the app (section 7) and open it.
+1. Install the app (section 7) and open it, or open your server's address in a browser.
 2. Choose **I have an invite code**, enter the admin code, your name, email and a password of at
    least 10 characters.
 3. To add someone: ⋮ menu, Settings, **Family accounts**, **Invite someone**, or `server/admin.sh`,
    then Accounts. Give them the code, which is shown once, works once, and lasts 7 days.
 4. If someone is locked out: **Reset code** next to their name. It's shown once and lasts 24 hours.
-5. To remove someone: **Disable**. It signs them out everywhere and keeps their books. The terminal panel
+5. To remove someone: **Disable**. It signs them out everywhere, cancels any reset code made for them earlier, and keeps their books. The terminal panel
    can also change someone's role, or permanently delete an account and its books.
 
 If you're ever locked out of every admin account, make a new admin code in `server/admin.sh`: Accounts,
@@ -334,6 +343,37 @@ and change it, and each change cancels your unused code.
 This doesn't work for the only working admin, because the last working admin can't be disabled. Make someone else an
 admin first, or use the code straight away from the terminal panel (`server/admin.sh`).
 
+Everything above works the same in a browser. A browser stays signed in, even after being closed, until 365 days after it
+was last used. A phone stays signed in for 90 days of no use. Anyone using a shared computer should sign out in Settings
+when finished. Disabling an account or changing its password ends its browser sessions at once.
+
+### Online book suggestions
+
+While someone adds a book, the app suggests titles and authors from [Open Library](https://openlibrary.org), a free
+catalogue that needs no account. What they type in those boxes goes through your server to that catalogue. The server
+never logs it, and libraries and notes are never sent. Anyone can turn this off for their own device in Settings.
+
+These optional settings go in `server/.env`. After changing any, run `docker compose up -d` in `server/`.
+
+| Setting | What it does |
+|---|---|
+| `BOOK_LOOKUP_ENABLED=false` | Turns suggestions off for everyone. |
+| `BOOK_LOOKUP_CONTACT=you@example.com` | Identifies your server to Open Library, raising its limit from 1 to 3 requests a second. A family doesn't normally need this. |
+| `GOOGLE_BOOKS_API_KEY=...` | Adds Google Books as a backup when Open Library finds nothing or can't answer. Leave it empty to leave Google out. |
+
+To get a Google key:
+
+1. In the [Google Cloud console](https://console.cloud.google.com/), create a project.
+2. Under **APIs & Services**, then **Library**, turn on **Books API**.
+3. Under **Credentials**, create an API key, and restrict it to the Books API.
+4. Add it to `server/.env` as above. It stays on your server and never reaches the app.
+
+Check it's working: sign in, tap +, and type a title. Success: suggestions appear after a moment, with a line naming
+the source. If nothing appears, `docker compose logs api | grep lookup` shows the reason.
+
+Kindle isn't offered because Amazon's product API requires 10 qualifying affiliate sales in the past 30 days, and its
+licence limits it to apps that mainly drive Amazon sales.
+
 ## 7. Build the Android app
 
 Builds run on your self-hosted build server, which clones from GitHub, so what's built must be
@@ -357,7 +397,7 @@ pushed first.
 **To build a released version:**
 
 ```bash
-npm run build:android -- --ref v1.0.3
+npm run build:android -- --ref v1.1.0
 ```
 
 A release build must be an approved version tag: anything else is refused. Use `--debug` for a test build.
@@ -388,7 +428,8 @@ You can also update from the app (Settings, then **Server**, then **Update serve
 confirm) or from `server/admin.sh`. All three run this same script. The app's button needs the helper
 scheduled, and starts within a minute.
 
-Keep the app and server on the same version: build and share a new APK with each release.
+Keep the app and server on the same version: build and share a new APK with each release. The web app updates with the
+server, and browsers pick it up the next time the page loads.
 
 ## 9. Roll back
 
@@ -539,10 +580,18 @@ Lines look like `2026-11-04T03:00:00.000Z INFO [http] POST /api/sync 200`. Docke
 
 `/api/health` needs no sign-in, so an uptime monitor can point at it. It says only up or down.
 
+The web app's address also logs one line per file a browser loads, such as `GET / 200`, which is normal.
+
 ## 14. Known limitations
 
 - **Editing the same book on two devices** keeps only the most recent edit, for the whole book. Fields
   aren't merged.
+- **The web app needs a connection.** It keeps no books in the browser, so a change made while the server can't be reached
+  is refused and undone. The Android app works offline.
+- **A book box has one read date,** so all its read books count in that date's year, even if they were read over several.
+- **The recent-apps screen can still show the app in two cases.** Android 13 and later show a blank card with the logo once the
+  app is in the background, but opening recents directly from the app shows a live view of it until you leave. Android 12
+  and earlier always show a picture.
 - **Import reads JSON exports only.** CSV is for spreadsheets, and can't restore a book's id.
 - **There's no staging environment.** For a family-sized library, the pre-update backup and rollback cover
   a bad deploy. Add one if that stops being true.
