@@ -1,7 +1,8 @@
 // screens/BookScreen.js
 // Adding and editing a book, on one form. It's opened with no id to add (the + button,
 // with the title field ready to type) or with a book's id to view and edit it. Everything
-// is optional except the title, and the read date defaults to today.
+// is optional except the title, and the read date defaults to today. The optional series sits just under the title,
+// offering series already used in the library so the same series isn't typed two ways.
 
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Keyboard, KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
@@ -14,13 +15,16 @@ import DateField from '../components/DateField';
 import { Button, Dialog, Field, Message, Segmented, SectionTitle, Stars } from '../components/ui';
 import { useBooks } from '../contexts/BooksContext';
 import { useTheme } from '../contexts/ThemeContext';
-import { boxTitlesProblem, cleanNames, distinctNames, emptyBook, parseBox, readDateForStatus, setCategoryRating, STATUSES } from '../lib/bookLogic';
+import { boxTitlesProblem, cleanNames, distinctNames, distinctSeries, emptyBook, parseBox, readDateForStatus, setCategoryRating, STATUSES } from '../lib/bookLogic';
 import { useBookSuggestions, useSuggestionSetting } from '../lib/bookSuggestions';
 import { useDeviceSetting } from '../lib/deviceSettings';
 import { useRevealFocusedField } from '../lib/useRevealFocusedField';
 
 // Matches the limits the server enforces (server/bookValidation.js).
 const MAX_TITLE = 500;
+const MAX_SERIES = 200;
+// How many of the library's series to offer under the series box while typing.
+const SERIES_SUGGESTIONS = 4;
 const MAX_NOTES = 20000;
 const SHORT_LABELS = { finished: 'Finished', reading: 'Reading', want: 'Want to read' };
 
@@ -38,7 +42,7 @@ export default function BookScreen() {
   // while being edited, because a half-typed number isn't a number yet.
   const [form, setForm] = useState(() => (existing
     ? {
-      id: existing.id, title: existing.title, authors: existing.authors, categories: existing.categories, status: existing.status,
+      id: existing.id, title: existing.title, series: existing.series || '', authors: existing.authors, categories: existing.categories, status: existing.status,
       rating: existing.rating, categoryRatings: existing.categoryRatings || [], readDate: existing.readDate, notes: existing.notes,
       boxTotal: existing.boxTotal ? String(existing.boxTotal) : '', boxRead: existing.boxTotal ? String(existing.boxRead ?? 0) : '',
       boxTitles: existing.boxTitles || [],
@@ -53,6 +57,8 @@ export default function BookScreen() {
   // True while someone is working in the title box. Its suggestions close afterward, so they don't push the rest of the
   // form down while the person fills it in.
   const [titleActive, setTitleActive] = useState(false);
+  // True while the series box has focus, which is when its suggestions show.
+  const [seriesActive, setSeriesActive] = useState(false);
   const { scrollRef, onScroll, reveal } = useRevealFocusedField();
   const [suggestionsOn] = useSuggestionSetting();
   // Off unless chosen in Settings, since most people only want to count a box's books.
@@ -62,6 +68,13 @@ export default function BookScreen() {
   const boxTitlesRef = useRef(null);
   const knownAuthors = useMemo(() => distinctNames(books, 'authors'), [books]);
   const knownCategories = useMemo(() => distinctNames(books, 'categories'), [books]);
+  const knownSeries = useMemo(() => distinctSeries(books), [books]);
+  // Series already used whose name contains what's typed, leaving out an exact match since that's already chosen.
+  const seriesMatches = useMemo(() => {
+    const typed = form.series.trim().toLowerCase();
+    if (!typed) return [];
+    return knownSeries.filter((name) => name.toLowerCase().includes(typed) && name.toLowerCase() !== typed).slice(0, SERIES_SUGGESTIONS);
+  }, [knownSeries, form.series]);
   // Only while adding: a book already saved has its title, and shouldn't send it anywhere just for being opened.
   const titleSuggestions = useBookSuggestions('title', form.title, suggestionsOn && !existing && !titleChosen);
 
@@ -182,6 +195,33 @@ export default function BookScreen() {
                 </Pressable>
               ))}
               <Text style={[styles.credit, { color: colors.muted }]}>Suggestions from {titleSuggestions.source}</Text>
+            </View>
+          ) : null}
+          <Field
+            label="Series (optional)"
+            value={form.series}
+            onChangeText={(series) => update({ series })}
+            onFocus={() => { setSeriesActive(true); reveal(); }}
+            // Waits a moment, as with the title, so a click on a suggestion in a browser still lands.
+            onBlur={() => setTimeout(() => setSeriesActive(false), 250)}
+            placeholder="e.g. Discworld"
+            autoCapitalize="words"
+            maxLength={MAX_SERIES}
+            returnKeyType="next"
+          />
+          {seriesActive && seriesMatches.length ? (
+            <View style={styles.titleSuggestions}>
+              {seriesMatches.map((name) => (
+                <Pressable
+                  key={name}
+                  onPress={() => { update({ series: name }); setSeriesActive(false); }}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Use series ${name}`}
+                  style={[styles.titleSuggestion, { borderColor: colors.border, backgroundColor: colors.surface }]}
+                >
+                  <Text style={{ color: colors.text, fontSize: 15 }} numberOfLines={1}>{name}</Text>
+                </Pressable>
+              ))}
             </View>
           ) : null}
           <NamePicker ref={authorsRef} label="Authors" placeholder="Add an author" value={form.authors} onChange={(authors) => update({ authors })} suggestions={knownAuthors} savedLabel="authors" onlineKind={suggestionsOn ? 'author' : undefined} onFocus={reveal} />

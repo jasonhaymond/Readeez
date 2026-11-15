@@ -1,6 +1,6 @@
 // test/sync.test.js
 // Behaviour and input-handling tests for POST /api/sync: last-edit-wins, deletions,
-// cursors, and what hostile or malformed books do (injection, oversized data).
+// cursors, series, year counts, and what hostile or malformed books do (injection, oversized data).
 
 const request = require('supertest');
 const pool = require('../db');
@@ -385,5 +385,126 @@ describe('category ratings', () => {
     const name = "x'); drop table books; --";
     await sync({ changes: [makeBook({ categories: [name], categoryRatings: [{ category: name, rating: 3 }] })] });
     expect((await sync({ cursor: '0' })).body.changes[0].categoryRatings[0].category).toBe(name);
+  });
+});
+
+describe('series', () => {
+  test('a series reaches another device, trimmed', async () => {
+    const book = makeBook({ series: '  Discworld ' });
+    await sync({ changes: [book] });
+    const res = await sync({ cursor: '0' });
+    expect(res.body.changes[0]).toMatchObject({ id: book.id, series: 'Discworld', kind: 'book', tallyCount: null });
+  });
+
+  test('a book without a series has an empty one', async () => {
+    await sync({ changes: [makeBook()] });
+    expect((await sync({ cursor: '0' })).body.changes[0].series).toBe('');
+  });
+
+  // An app from before series sends no series field. Its edit must not wipe the series set on a newer app.
+  test('an edit from an older app keeps the stored series', async () => {
+    const book = makeBook({ series: 'Discworld' });
+    await sync({ changes: [book] });
+    const older = { ...book, title: 'Renamed', updatedAt: '2026-11-05T12:00:00.000Z' };
+    delete older.series;
+    await sync({ changes: [older] });
+    const { rows: [row] } = await pool.query('select title, series from books where id = $1', [book.id]);
+    expect(row).toEqual({ title: 'Renamed', series: 'Discworld' });
+  });
+
+  // A newer app clearing the series sends an empty one, which does clear it.
+  test('an empty series clears it', async () => {
+    const book = makeBook({ series: 'Discworld' });
+    await sync({ changes: [book] });
+    await sync({ changes: [{ ...book, series: '', updatedAt: '2026-11-05T12:00:00.000Z' }] });
+    const { rows: [row] } = await pool.query('select series from books where id = $1', [book.id]);
+    expect(row.series).toBe('');
+  });
+
+  // Oversized or wrongly typed series are refused, one book at a time.
+  test.each([['x'.repeat(201)], [5], [['a']]])('series %j is rejected', async (series) => {
+    const res = await sync({ changes: [makeBook({ series })] });
+    expect(res.body.rejected).toHaveLength(1);
+  });
+
+  // SQL injection: a series is a query parameter, so it's stored as plain text.
+  test('an injection attempt in a series is stored as plain text', async () => {
+    const book = makeBook({ series: "x'); drop table books; --" });
+    await sync({ changes: [book] });
+    const { rows: [row] } = await pool.query('select series from books where id = $1', [book.id]);
+    expect(row.series).toBe("x'); drop table books; --");
+  });
+});
+
+describe('year counts (books read before Readeez)', () => {
+  const { tallyId } = require('../bookValidation');
+  const tally = (fields = {}) => ({
+    id: tallyId(2023), kind: 'tally', tallyCount: 40, title: 'whatever', status: 'finished', readDate: '2023-01-01',
+    updatedAt: '2026-11-04T12:00:00.000Z', ...fields,
+  });
+
+  test('a year count reaches another device', async () => {
+    await sync({ changes: [tally()] });
+    const res = await sync({ cursor: '0' });
+    expect(res.body.changes[0]).toMatchObject({ id: tallyId(2023), kind: 'tally', tallyCount: 40, readDate: '2023-01-01' });
+  });
+
+  // The server sets everything but the year and the count, so a year count can't carry hidden text or ratings.
+  test('only the year and count are kept', async () => {
+    await sync({ changes: [tally({ notes: 'secret', authors: ['X'], rating: 5, series: 'S', categories: ['C'] })] });
+    const [saved] = (await sync({ cursor: '0' })).body.changes;
+    expect(saved).toMatchObject({ title: 'Books read in 2023 before Readeez', notes: '', authors: [], categories: [], rating: null, series: '' });
+  });
+
+  // One fixed id per year: a count can't be stored under another id, or under another year's id, which would let one
+  // year have several counts.
+  test.each([
+    [{ id: '3f2a9c1e-7b4d-4e8a-9f10-6c2d8e1b5a70' }],
+    [{ id: tallyId(2024) }],
+    [{ readDate: '2023-06-01' }],
+    [{ readDate: '1899-01-01', id: tallyId(1899) }],
+    [{ readDate: '2999-01-01', id: tallyId(2999) }],
+    [{ tallyCount: 0 }],
+    [{ tallyCount: 10001 }],
+    [{ tallyCount: '40' }],
+    [{ kind: 'other' }],
+  ])('a year count with %j is rejected', async (fields) => {
+    const res = await sync({ changes: [tally(fields)] });
+    expect(res.body.rejected).toHaveLength(1);
+  });
+
+  // An app too old to know about year counts would send one back as an ordinary book, turning the count into a
+  // book titled "Books read in 2023 before Readeez". It's refused instead, and the count is unchanged.
+  test('an older app editing a year count as a book is refused', async () => {
+    await sync({ changes: [tally()] });
+    const asBook = makeBook({ id: tallyId(2023), title: 'Books read in 2023 before Readeez', updatedAt: '2026-11-05T12:00:00.000Z' });
+    const res = await sync({ changes: [asBook] });
+    expect(res.body.rejected).toEqual([{ id: tallyId(2023), error: 'year count from an older app' }]);
+    const { rows: [row] } = await pool.query('select kind, tally_count from books where id = $1', [tallyId(2023)]);
+    expect(row).toEqual({ kind: 'tally', tally_count: 40 });
+  });
+
+  test('a newer count replaces the older one, and deleting it reaches other devices', async () => {
+    await sync({ changes: [tally()] });
+    await sync({ changes: [tally({ tallyCount: 55, updatedAt: '2026-11-05T12:00:00.000Z' })] });
+    await sync({ changes: [{ ...tally(), deleted: true, updatedAt: '2026-11-06T12:00:00.000Z' }] });
+    const [gone] = (await sync({ cursor: '0' })).body.changes;
+    expect(gone).toMatchObject({ id: tallyId(2023), deleted: true, tallyCount: null });
+  });
+
+  // IDOR: the id is the same for every person's 2023 count, but each person's row is their own.
+  test('two people\'s counts for the same year stay separate', async () => {
+    const other = await createUser();
+    await sync({ changes: [tally()] });
+    await sync({ changes: [tally({ tallyCount: 3, updatedAt: '2026-11-09T12:00:00.000Z' })] }, other);
+    expect((await sync({ cursor: '0' })).body.changes[0].tallyCount).toBe(40);
+    expect((await sync({ cursor: '0' }, other)).body.changes[0].tallyCount).toBe(3);
+  });
+
+  // A year count isn't a book, so the admin's per-person book count leaves it out.
+  test('year counts are left out of book counts', async () => {
+    await sync({ changes: [tally(), makeBook()] });
+    const { listAccounts } = require('../accounts');
+    expect((await listAccounts()).find((u) => u.id === user.id).bookCount).toBe(1);
   });
 });

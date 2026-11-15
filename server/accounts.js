@@ -10,13 +10,14 @@ const { deleteSessions } = require('./auth');
 class AccountError extends Error {}
 
 /**
- * Lists every account, with a book count but never any book contents.
+ * Lists every account, with a book count but never any book contents. Year counts (books read before Readeez) are
+ * rows in the books table but not books, so they are left out of the count.
  * Out: an array of accounts.
  */
 async function listAccounts() {
   const { rows } = await pool.query(
     `select u.id, u.email, u.display_name, u.role, u.disabled_at,
-            (select count(*)::int from books b where b.user_id = u.id and not b.deleted) as book_count
+            (select count(*)::int from books b where b.user_id = u.id and not b.deleted and b.kind = 'book') as book_count
        from users u order by u.display_name, u.email`
   );
   return rows.map((u) => ({

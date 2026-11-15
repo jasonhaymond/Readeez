@@ -1,6 +1,6 @@
 // test/importBooks.test.js
 // Tests reading an export file back in: a hostile or damaged file can't put bad data on the phone, and
-// importing an old file can't overwrite later edits.
+// importing an old file can't overwrite later edits. Series and year counts round-trip too.
 
 const { parseExport, planImport } = require('../lib/importBooks');
 const { toJson } = require('../server/exportFormat');
@@ -8,7 +8,7 @@ const { toJson } = require('../server/exportFormat');
 const ID = '3f2a9c1e-7b4d-4e8a-9f10-6c2d8e1b5a70';
 const OTHER = '3f2a9c1e-7b4d-4e8a-9f10-6c2d8e1b5a71';
 const book = (fields = {}) => ({
-  id: ID, title: 'T', authors: ['A'], categories: [], status: 'finished', rating: 4, categoryRatings: [], boxTotal: null, boxRead: null, boxTitles: [], readDate: '2026-01-02', notes: 'n',
+  id: ID, title: 'T', series: '', kind: 'book', tallyCount: null, authors: ['A'], categories: [], status: 'finished', rating: 4, categoryRatings: [], boxTotal: null, boxRead: null, boxTitles: [], readDate: '2026-01-02', notes: 'n',
   updatedAt: '2026-01-02T00:00:00.000Z', ...fields,
 });
 const file = (books) => JSON.stringify({ app: 'Readeez', books });
@@ -144,5 +144,50 @@ describe('box counts and category ratings in a file', () => {
     const { books } = read({ categoryRatings: [{ category: 'Crime', rating: 9 }], isAdmin: true });
     expect(books[0].categoryRatings).toEqual([]);
     expect(books[0].isAdmin).toBeUndefined();
+  });
+});
+
+describe('series and year counts in a file', () => {
+  const { tallyId } = require('../lib/bookLogic');
+  const tally = (fields = {}) => ({ id: tallyId(2023), title: 'Books read in 2023 before Readeez', kind: 'tally', tallyCount: 40, status: 'finished', readDate: '2023-01-01', updatedAt: '2026-01-02T00:00:00.000Z', ...fields });
+
+  test('a series is kept, trimmed, and older files have none', () => {
+    expect(parseExport(file([book({ series: '  Discworld ' })])).books[0].series).toBe('Discworld');
+    const old = { ...book() };
+    delete old.series;
+    delete old.kind;
+    delete old.tallyCount;
+    expect(parseExport(file([old])).books[0]).toMatchObject({ series: '', kind: 'book' });
+  });
+
+  // A file can be edited, so the server's limits apply here too.
+  test.each([[{ series: 'x'.repeat(201) }], [{ series: 5 }], [{ kind: 'weird' }]])('%j is left out', (fields) => {
+    expect(parseExport(file([book(fields)])).invalid).toBe(1);
+  });
+
+  // The round trip: an exported year count imports as the same count.
+  test('a year count reads back unchanged', () => {
+    const { books, invalid } = parseExport(toJson([tally()], '1.2.0', 'now'));
+    expect(invalid).toBe(0);
+    expect(books[0]).toMatchObject({ id: tallyId(2023), kind: 'tally', tallyCount: 40, readDate: '2023-01-01', notes: '', authors: [] });
+  });
+
+  // Only the year and count are taken from the file: an edited file can't give a count another year's id, a title of
+  // its own, or notes, so it can't make a second count for a year or hide text in one.
+  test('a year count is rebuilt from its year', () => {
+    const { books } = parseExport(file([tally({ id: ID, title: '<b>Hi</b>', notes: 'secret', authors: ['X'] })]));
+    expect(books[0]).toMatchObject({ id: tallyId(2023), title: 'Books read in 2023 before Readeez', notes: '', authors: [] });
+  });
+
+  test.each([
+    [{ tallyCount: 0 }], [{ tallyCount: 10001 }], [{ tallyCount: '40' }], [{ tallyCount: 2.5 }],
+    [{ readDate: '2023-06-01' }], [{ readDate: '1899-01-01' }], [{ readDate: '3000-01-01' }], [{ readDate: null }], [{ updatedAt: 'soon' }],
+  ])('a year count with %j is left out', (fields) => {
+    expect(parseExport(file([tally(fields)])).invalid).toBe(1);
+  });
+
+  // A book given a year count's fixed id would overwrite that year's count when imported.
+  test('a book using a year count id is left out', () => {
+    expect(parseExport(file([book({ id: tallyId(2023) })])).invalid).toBe(1);
   });
 });

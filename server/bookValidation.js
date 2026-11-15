@@ -4,6 +4,10 @@
 // Used by routes/sync.js.
 
 const MAX_TITLE = 500;
+const MAX_SERIES = 200;
+// A year count can say up to this many books, which only catches typing mistakes.
+const MAX_TALLY = 10000;
+const MIN_TALLY_YEAR = 1900;
 const MAX_NOTES = 20000;
 const MAX_NAMES = 20;
 const MAX_NAME = 200;
@@ -15,6 +19,25 @@ const MAX_BOX = 1000;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 // A calendar date such as 2026-11-04.
 const DATE = /^\d{4}-\d{2}-\d{2}$/;
+// The fixed id of a year count, ending in the year, e.g. 00000000-0000-4000-8000-000000002023. One fixed id per year
+// means two phones adding the same year offline edit one row (the later edit wins) rather than making two.
+const TALLY_ID = /^00000000-0000-4000-8000-\d{12}$/;
+
+/**
+ * The id a year's count always uses. Matches tallyId in lib/bookLogic.js.
+ * In: a year as a number. Out: the id text.
+ */
+function tallyId(year) {
+  return `00000000-0000-4000-8000-${String(year).padStart(12, '0')}`;
+}
+
+/**
+ * The title stored on a year count. The server writes it itself, so a year count can't carry text of its own.
+ * In: a year. Out: the title. Matches tallyTitle in lib/bookLogic.js.
+ */
+function tallyTitle(year) {
+  return `Books read in ${year} before Readeez`;
+}
 
 /**
  * Tidies a list of author or category names: trims them and drops blanks and
@@ -128,15 +151,24 @@ function validateBook(input, now) {
   // edit can't be dated later than the moment the server receives it.
   const updatedAt = editedAt > now ? now : editedAt;
 
+  // An app from before year counts sends no kind, which means an ordinary book. Year counts always say so.
+  const kind = input.kind ?? 'book';
+  if (kind !== 'book' && kind !== 'tally') return { error: 'bad kind' };
+
   if (input.deleted === true) {
     return {
       book: {
         id: input.id.toLowerCase(), title: '', authors: [], categories: [], status: 'finished',
         rating: null, readDate: null, notes: '', updatedAt, deleted: true,
-        boxTotal: null, boxRead: null, boxTitles: [], categoryRatings: [],
+        boxTotal: null, boxRead: null, boxTitles: [], categoryRatings: [], series: '', kind, tallyCount: null,
       },
     };
   }
+
+  if (kind === 'tally') return validateTally(input, updatedAt);
+  // A year count's id sent as an ordinary book can only come from an app too old to know about year counts, editing
+  // one it was sent. Refused, so the count isn't turned into a book; the phone shows that a change couldn't be saved.
+  if (TALLY_ID.test(input.id)) return { error: 'year count from an older app' };
 
   const title = typeof input.title === 'string' ? input.title.trim() : '';
   if (!title || title.length > MAX_TITLE) return { error: 'bad title' };
@@ -156,13 +188,46 @@ function validateBook(input, now) {
   if (!boxTitles) return { error: 'bad box titles' };
   const categoryRatings = cleanCategoryRatings(input.categoryRatings, categories);
   if (!categoryRatings) return { error: 'bad category ratings' };
+  // Missing (from an app older than series) becomes null, which routes/sync.js reads as "keep the series already
+  // stored", so editing a book on an old app doesn't wipe its series.
+  let series = null;
+  if (input.series !== undefined && input.series !== null) {
+    if (typeof input.series !== 'string' || input.series.trim().length > MAX_SERIES) return { error: 'bad series' };
+    series = input.series.trim();
+  }
 
   return {
     book: {
       id: input.id.toLowerCase(), title, authors, categories, status: input.status,
       rating, readDate, notes, updatedAt, deleted: false, ...box, boxTitles, categoryRatings,
+      series, kind: 'book', tallyCount: null,
     },
   };
 }
 
-module.exports = { validateBook, UUID };
+/**
+ * Validates a year count: how many books someone read in a year before using Readeez.
+ * In: what the client sent, and the edit time already checked. Out: { book } or { error }.
+ * Only the year (taken from the read date) and the count are used. Everything else is set here, so a year count
+ * can't hold notes, authors or a made-up title, and its id must be that year's fixed id.
+ */
+function validateTally(input, updatedAt) {
+  const readDate = input.readDate ?? null;
+  if (!isRealDate(readDate)) return { error: 'bad year' };
+  const year = Number(readDate.slice(0, 4));
+  // Stored as 1 January of its year. Up to a year past the edit's own year, since a phone's local date can be a
+  // new year while the server's UTC clock is still in the old one; anything later is a mistake.
+  if (year <MIN_TALLY_YEAR || year > updatedAt.getUTCFullYear() + 1 || readDate !== `${year}-01-01`) return { error: 'bad year' };
+  if (input.id.toLowerCase() !== tallyId(year)) return { error: 'bad year count id' };
+  const count = input.tallyCount;
+  if (!Number.isInteger(count) || count < 1 || count > MAX_TALLY) return { error: 'bad year count' };
+  return {
+    book: {
+      id: tallyId(year), title: tallyTitle(year), authors: [], categories: [], status: 'finished', rating: null, readDate,
+      notes: '', updatedAt, deleted: false, boxTotal: null, boxRead: null, boxTitles: [], categoryRatings: [],
+      series: '', kind: 'tally', tallyCount: count,
+    },
+  };
+}
+
+module.exports = { validateBook, UUID, tallyId, tallyTitle };

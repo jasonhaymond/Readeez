@@ -6,6 +6,31 @@ All notable changes to Readeez are recorded here. The format follows
 
 [Back to the README](README.md)
 
+## [1.2.0] - 2026-11-14
+
+### Added
+
+- **Series**: an optional series name under a book's title, shown in italics in the library. Series already used are
+  suggested while typing, search finds books by series, and the library filter can show one series.
+- **Books read before Readeez**: a count of books read in a year before using the app, added from Stats under
+  "Before Readeez". It adds to the books read total and books per year, but not to authors, categories or ratings,
+  and isn't listed in the library. Each year has one count, even when two phones add it offline.
+- **Filter by read date**: all time, one year, or a custom from/to range, in the library filter and at the top of
+  Stats. Stats totals, top authors, categories and ratings follow the chosen period. A year count is only included in
+  a custom range that covers its whole year.
+- Exports (CSV and JSON) and imports carry series and year counts.
+
+### Changed
+
+- Admin per-person book counts leave out year counts.
+- Database migration 005 adds the `series`, `kind` and `tally_count` columns. It only adds columns, so existing books
+  are kept.
+
+### Notes
+
+- Phones still on 1.1.0 show a year count as a single book. Editing one there is refused by the server, so the count
+  can't be damaged; update the app to see it properly.
+
 ## [1.1.0] - 2026-11-06
 
 ### Added

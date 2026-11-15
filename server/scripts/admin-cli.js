@@ -40,7 +40,7 @@ async function idFor(email) {
 async function status() {
   const { rows: [counts] } = await pool.query(
     `select (select count(*) from users) as users, (select count(*) from users where disabled_at is not null) as disabled,
-            (select count(*) from books where not deleted) as books,
+            (select count(*) from books where not deleted and kind = 'book') as books,
             (select count(*) from sessions where expires_at > now()) as sessions`
   );
   const { rows: [meta] } = await pool.query(`select coalesce(extract(epoch from now() - agent_seen_at)::int, -1) as agent_age from app_meta where id = 1`);

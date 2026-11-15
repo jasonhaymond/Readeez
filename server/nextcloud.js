@@ -250,7 +250,8 @@ async function exportForUser(userId, now = new Date()) {
     const link = { baseUrl: row.base_url, username: row.username, password: decrypt(row.app_password_enc) };
     // Only this person's books: their export must never contain anyone else's.
     const { rows: books } = await pool.query(
-      `select id, title, authors, categories, status, rating, read_date, notes, updated_at, box_total, box_read, box_titles, category_ratings
+      `select id, title, authors, categories, status, rating, read_date, notes, updated_at, box_total, box_read, box_titles, category_ratings,
+              series, kind, tally_count
          from books where user_id = $1 and not deleted order by title`,
       [userId]
     );
@@ -258,6 +259,7 @@ async function exportForUser(userId, now = new Date()) {
       id: b.id, title: b.title, authors: b.authors, categories: b.categories, status: b.status,
       rating: b.rating, readDate: b.read_date, notes: b.notes, updatedAt: b.updated_at.toISOString(),
       boxTotal: b.box_total, boxRead: b.box_read, boxTitles: b.box_titles, categoryRatings: b.category_ratings,
+      series: b.series, kind: b.kind, tallyCount: b.tally_count,
     }));
 
     const folder = `${ROOT_FOLDER}/${encodeURIComponent(accountFolder(row.email))}`;

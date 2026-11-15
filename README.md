@@ -6,7 +6,7 @@ A simple book tracker for a family. Log what you've read with its authors, categ
 rating, read date and your notes. It's an Android app that works offline, and a web app, both syncing to your own
 server, with backups and exports to Nextcloud.
 
-**Current version: 1.1.0** · [Changelog](CHANGELOG.md)
+**Current version: 1.2.0** · [Changelog](CHANGELOG.md)
 
 ## Documentation
 
@@ -26,8 +26,10 @@ server, with backups and exports to Nextcloud.
 - **Ratings:** optional stars for the book and for each of its categories.
 - **Global search:** the magnifying glass at the top of every screen searches titles, authors,
   categories and notes.
-- **Library:** most recently read first, filtered by status, author, category or rating.
-- **Stats:** totals, books per year, top authors and categories, and average stars per category.
+- **Series:** an optional series name under each title, suggested from series already used.
+- **Library:** most recently read first, filtered by status, read date (a year or a custom date range), series, author, category or rating.
+- **Stats:** totals, books per year, top authors and categories, and average stars per category, for all time, one year or a custom date range.
+- **Books read before Readeez:** a count per year, entered on the Stats screen, that adds to the totals and books per year.
 - **Works offline on Android:** everything is saved on the phone first and syncs when it can. If a book was
   changed on two devices, the most recent change is kept.
 - **Web app:** the full app in a browser, including admin features, served by your server at its own address. It needs a
@@ -77,7 +79,7 @@ You need Node 24 and Docker.
    DATABASE_URL=postgres://readeez:dev@127.0.0.1:15436/readeez SECRETS_KEY=dev PORT=3020 node index.js
    ```
 
-   Expected: `Readeez server v1.1.0 listening on port 3020`.
+   Expected: `Readeez server v1.2.0 listening on port 3020`.
 
 3. In another terminal, make your first account's invite code:
 

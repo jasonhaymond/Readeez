@@ -35,6 +35,9 @@ function rowToBook(row) {
     boxRead: row.box_read,
     boxTitles: row.box_titles,
     categoryRatings: row.category_ratings,
+    series: row.series,
+    kind: row.kind,
+    tallyCount: row.tally_count,
     updatedAt: row.updated_at.toISOString(),
     deleted: row.deleted,
   };
@@ -92,19 +95,22 @@ function createSyncRouter() {
         // separate row and can't touch this person's book.
         const { rowCount } = await client.query(
           `insert into books (user_id, id, title, authors, categories, status, rating, read_date, notes, updated_at, deleted,
-                              box_total, box_read, box_titles, category_ratings)
-           values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15::jsonb)
+                              box_total, box_read, box_titles, category_ratings, series, kind, tally_count)
+           values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15::jsonb, coalesce($16, ''), $17, $18)
            on conflict (user_id, id) do update set
              title = excluded.title, authors = excluded.authors, categories = excluded.categories,
              status = excluded.status, rating = excluded.rating, read_date = excluded.read_date,
              notes = excluded.notes, updated_at = excluded.updated_at, deleted = excluded.deleted,
              box_total = excluded.box_total, box_read = excluded.box_read, box_titles = excluded.box_titles,
              category_ratings = excluded.category_ratings,
+             -- A series of null means an older app that doesn't know about series sent this edit, so the stored one stays.
+             series = case when $16::text is null then books.series else excluded.series end,
+             kind = excluded.kind, tally_count = excluded.tally_count,
              seq = nextval('books_seq')
            where excluded.updated_at > books.updated_at`,
           [req.user.id, book.id, book.title, book.authors, book.categories, book.status, book.rating,
             book.readDate, book.notes, book.updatedAt, book.deleted, book.boxTotal, book.boxRead, book.boxTitles,
-            JSON.stringify(book.categoryRatings)]
+            JSON.stringify(book.categoryRatings), book.series, book.kind, book.tallyCount]
         );
         if (rowCount === 0) lostIds.push(book.id);
       }

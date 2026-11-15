@@ -1,5 +1,5 @@
 // components/BookRow.js
-// One book in a list (the library and search results): title, authors, rating, date,
+// One book in a list (the library and search results): title, series, authors, rating, date,
 // and how far through a book box someone is. Tapping it opens the book.
 
 import React from 'react';
@@ -27,6 +27,10 @@ export default function BookRow({ book }) {
       style={({ pressed }) => [styles.row, { backgroundColor: colors.surface, borderColor: colors.border, opacity: pressed ? 0.75 : 1 }]}
     >
       <Text style={[styles.title, { color: colors.text }]} numberOfLines={2}>{book.title}</Text>
+      {/* The series, when there is one, sits just under the title in italics, so it reads as part of the title. */}
+      {book.series ? (
+        <Text style={[styles.series, { color: colors.muted }]} numberOfLines={1}>{book.series}</Text>
+      ) : null}
       {book.authors.length ? (
         <Text style={[styles.authors, { color: colors.muted }]} numberOfLines={1}>{book.authors.join(', ')}</Text>
       ) : null}
@@ -43,6 +47,7 @@ export default function BookRow({ book }) {
 const styles = StyleSheet.create({
   row: { borderWidth: 1, borderRadius: 12, paddingHorizontal: 14, paddingVertical: 12, marginBottom: 8 },
   title: { fontSize: 16, fontWeight: '600' },
+  series: { fontSize: 14, fontStyle: 'italic', marginTop: 1 },
   authors: { fontSize: 14, marginTop: 2 },
   meta: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 6, gap: 12, minHeight: 16 },
   date: { fontSize: 13, flexShrink: 1, marginLeft: 'auto' },

@@ -13,7 +13,7 @@ import { randomUUID } from 'expo-crypto';
 import * as api from '../lib/api';
 import * as store from '../lib/bookStore';
 import { runSync } from '../lib/syncEngine';
-import { cleanCategoryRatings, cleanNames, mergeLoadedBooks, nextEditTime, sortBooks } from '../lib/bookLogic';
+import { cleanCategoryRatings, cleanNames, isTally, mergeLoadedBooks, nextEditTime, sortBooks, tallyId, tallyTitle, yearCounts } from '../lib/bookLogic';
 import { useAuth } from './AuthContext';
 
 // Gathers a quick run of edits into one sync, rather than one request per edit.
@@ -211,6 +211,9 @@ export function BooksProvider({ children }) {
     const book = {
       id: values.id || randomUUID(),
       title: values.title.trim(),
+      series: (values.series || '').trim(),
+      kind: 'book',
+      tallyCount: null,
       authors: cleanNames(values.authors),
       categories,
       status: values.status,
@@ -231,7 +234,7 @@ export function BooksProvider({ children }) {
   }, [commit]);
 
   /**
-   * Deletes a book. It stays on the device as an emptied marker until the server has heard,
+   * Deletes a book, or a year count (by its id). It stays on the device as an emptied marker until the server has heard,
    * so other devices learn it's gone.
    * In: the book's id. Side effects: see commit. Throws if it couldn't be deleted.
    */
@@ -239,8 +242,24 @@ export function BooksProvider({ children }) {
     const existing = booksRef.current.find((book) => book.id === id);
     if (!existing) return;
     await commit([{
-      id, title: '', authors: [], categories: [], status: 'finished', rating: null, categoryRatings: [], boxTotal: null,
-      boxRead: null, boxTitles: [], readDate: null, notes: '', updatedAt: nextEditTime(existing.updatedAt), deleted: true, dirty: true,
+      id, title: '', series: '', kind: existing.kind || 'book', tallyCount: null, authors: [], categories: [], status: 'finished',
+      rating: null, categoryRatings: [], boxTotal: null, boxRead: null, boxTitles: [], readDate: null, notes: '',
+      updatedAt: nextEditTime(existing.updatedAt), deleted: true, dirty: true,
+    }]);
+  }, [commit]);
+
+  /**
+   * Sets how many books were read in a year before using Readeez, replacing any count already there for that year.
+   * In: the year and the count, already checked by parseTally in lib/bookLogic.js. Side effects: see commit. Throws if
+   * it couldn't be saved. The row uses that year's fixed id, so each year has at most one count on every device.
+   */
+  const saveYearCount = useCallback(async (year, count) => {
+    const id = tallyId(year);
+    const existing = booksRef.current.find((book) => book.id === id);
+    await commit([{
+      id, title: tallyTitle(year), series: '', kind: 'tally', tallyCount: count, authors: [], categories: [], status: 'finished',
+      rating: null, categoryRatings: [], boxTotal: null, boxRead: null, boxTitles: [], readDate: `${year}-01-01`, notes: '',
+      updatedAt: nextEditTime(existing?.updatedAt), deleted: false, dirty: true,
     }]);
   }, [commit]);
 
@@ -251,8 +270,10 @@ export function BooksProvider({ children }) {
   const importBooks = useCallback((books) => commit(books), [commit]);
 
   const value = useMemo(() => ({
-    // What screens display: live books only, most recently read first.
-    books: sortBooks(allBooks.filter((book) => !book.deleted)),
+    // What screens display: live books only, most recently read first. Year counts aren't books, so they're kept apart.
+    books: sortBooks(allBooks.filter((book) => !book.deleted && !isTally(book))),
+    // Books read in a year before using Readeez, newest year first, for the Stats screen.
+    yearCounts: yearCounts(allBooks),
     // Everything, including deleted markers, which an import needs to compare against.
     allBooks,
     pendingCount: allBooks.filter((book) => book.dirty).length,
@@ -261,8 +282,9 @@ export function BooksProvider({ children }) {
     syncNow,
     saveBook,
     deleteBook,
+    saveYearCount,
     importBooks,
-  }), [allBooks, ready, sync, syncNow, saveBook, deleteBook, importBooks]);
+  }), [allBooks, ready, sync, syncNow, saveBook, deleteBook, saveYearCount, importBooks]);
 
   return <BooksContext.Provider value={value}>{children}</BooksContext.Provider>;
 }

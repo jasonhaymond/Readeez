@@ -165,6 +165,22 @@ describe('CSV exports', () => {
     expect(saved).toMatchObject({ categoryRatings: [{ category: 'Fantasy', rating: 5 }], boxTotal: 7, boxRead: 3 });
   });
 
+  // A series and year counts reach both formats, so an export holds everything the Stats screen counts.
+  test('series and year counts are exported', () => {
+    const book = makeBook({ title: 'Mort', series: 'Discworld' });
+    const tally = { id: '00000000-0000-4000-8000-000000002023', title: 'Books read in 2023 before Readeez', kind: 'tally', tallyCount: 40,
+      status: 'finished', readDate: '2023-01-01', updatedAt: '2026-11-04T12:00:00.000Z' };
+    const csv = toCsv([book, tally]);
+    expect(csv.split('\r\n')[0]).toMatch(/^Title,Series,Authors,.*,Entry,Books counted,Last updated$/);
+    expect(csv).toContain('Mort,Discworld,');
+    expect(csv).toContain(',Year count,40,');
+    // CSV formula injection: a series is neutralised like any other cell.
+    expect(toCsv([makeBook({ series: '=cmd' })])).toContain(",'=cmd,");
+    const saved = JSON.parse(toJson([book, tally], '1.2.0', 'now')).books;
+    expect(saved[0]).toMatchObject({ series: 'Discworld', kind: 'book', tallyCount: null });
+    expect(saved[1]).toMatchObject({ kind: 'tally', tallyCount: 40, readDate: '2023-01-01' });
+  });
+
   // Deleted books stay out of both formats.
   test('deleted books are left out', () => {
     const books = [makeBook({ title: 'Live' }), makeBook({ title: 'Gone', deleted: true })];

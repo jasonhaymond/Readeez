@@ -145,7 +145,7 @@ function createAdminRouter() {
   router.get('/status', async (req, res) => {
     const { rows: [counts] } = await pool.query(
       `select (select count(*)::int from users) as users,
-              (select count(*)::int from books where not deleted) as books`
+              (select count(*)::int from books where not deleted and kind = 'book') as books`
     );
     const { rows: backups } = await pool.query(
       'select finished_at, ok, app_version, file_name, uploaded, message from backup_runs order by id desc limit 1'

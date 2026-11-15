@@ -4,7 +4,8 @@
 // the mobile app imports the same file for its share-sheet export. It must stay
 // free of server-only code (no database, no Node modules) for that reason.
 
-const CSV_COLUMNS = ['Title', 'Authors', 'Categories', 'Status', 'Rating', 'Category ratings', 'Books in box', 'Box books read', 'Titles in box', 'Read date', 'Notes', 'Last updated'];
+// "Entry" tells a book apart from a year count (books read in a year before Readeez), whose number is in "Books counted".
+const CSV_COLUMNS = ['Title', 'Series', 'Authors', 'Categories', 'Status', 'Rating', 'Category ratings', 'Books in box', 'Box books read', 'Titles in box', 'Read date', 'Notes', 'Entry', 'Books counted', 'Last updated'];
 const STATUS_LABELS = { want: 'Want to read', reading: 'Reading', finished: 'Finished' };
 
 /**
@@ -24,11 +25,13 @@ function csvCell(value) {
 /**
  * Builds the CSV export, for reading in a spreadsheet.
  * In: an array of books. Out: the file's text. Deleted markers are left out. Several
- * authors or categories share one cell, separated by "; ".
+ * authors or categories share one cell, separated by "; ". Year counts are rows too, so the file holds everything the
+ * Stats screen counts.
  */
 function toCsv(books) {
   const rows = books.filter((book) => !book.deleted).map((book) => [
     book.title,
+    book.series ?? '',
     (book.authors || []).join('; '),
     (book.categories || []).join('; '),
     STATUS_LABELS[book.status] || book.status,
@@ -40,6 +43,8 @@ function toCsv(books) {
     (book.boxTitles || []).join('; '),
     book.readDate ?? '',
     book.notes ?? '',
+    book.kind === 'tally' ? 'Year count' : 'Book',
+    book.kind === 'tally' ? book.tallyCount : '',
     book.updatedAt ?? '',
   ]);
   return [CSV_COLUMNS, ...rows].map((row) => row.map(csvCell).join(',')).join('\r\n') + '\r\n';
@@ -48,12 +53,14 @@ function toCsv(books) {
 /**
  * Builds the JSON export: the complete record of a library.
  * In: an array of books, the app version, and the time as an ISO string.
- * Out: the file's text. Deleted markers are left out.
+ * Out: the file's text. Deleted markers are left out. Year counts are included, marked by kind, so importing the file
+ * brings them back too.
  */
 function toJson(books, appVersion, exportedAt) {
   const live = books.filter((book) => !book.deleted).map((book) => ({
     id: book.id,
     title: book.title,
+    series: book.series ?? '',
     authors: book.authors || [],
     categories: book.categories || [],
     status: book.status,
@@ -64,6 +71,8 @@ function toJson(books, appVersion, exportedAt) {
     boxTitles: book.boxTitles || [],
     readDate: book.readDate ?? null,
     notes: book.notes ?? '',
+    kind: book.kind ?? 'book',
+    tallyCount: book.tallyCount ?? null,
     updatedAt: book.updatedAt,
   }));
   return `${JSON.stringify({ app: 'Readeez', appVersion, exportedAt, books: live }, null, 2)}\n`;

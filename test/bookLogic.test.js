@@ -276,3 +276,133 @@ describe('category ratings', () => {
     ]);
   });
 });
+
+describe('series', () => {
+  const { distinctSeries, filterBooks, searchBooks: search } = require('../lib/bookLogic');
+  const shelf = [
+    book({ title: 'Mort', series: 'Discworld' }),
+    book({ title: 'Guards', series: 'discworld' }),
+    book({ title: 'Dune', series: 'Dune Chronicles' }),
+    book({ title: 'Standalone' }),
+  ];
+
+  // Spellings that differ only in case are one series, so the filter doesn't list it twice.
+  test('series names are listed once, A to Z', () => {
+    expect(distinctSeries(shelf)).toEqual(['Discworld', 'Dune Chronicles']);
+  });
+
+  test('the series filter ignores case', () => {
+    expect(filterBooks(shelf, { series: 'DISCWORLD' }).map((b) => b.title)).toEqual(['Mort', 'Guards']);
+  });
+
+  test('search finds a book by its series', () => {
+    expect(search(shelf, 'chronicles').map((b) => b.title)).toEqual(['Dune']);
+  });
+
+  test('a new book starts with no series', () => {
+    expect(logic.emptyBook().series).toBe('');
+  });
+});
+
+describe('year counts (books read before Readeez)', () => {
+  const { computeStats, parseTally, readCount, tallyId, yearCounts, readYears } = require('../lib/bookLogic');
+  const tally = (year, count, fields = {}) => ({ id: tallyId(year), kind: 'tally', tallyCount: count, status: 'finished', readDate: `${year}-01-01`, authors: [], categories: [], ...fields });
+
+  // The fixed id is what keeps each year to one count across devices; it must match the server's.
+  test('each year has one fixed id, the same as the server uses', () => {
+    expect(tallyId(2023)).toBe('00000000-0000-4000-8000-000000002023');
+    expect(require('../server/bookValidation').tallyId(2023)).toBe(tallyId(2023));
+  });
+
+  test('a year count counts as its number', () => {
+    expect(readCount(tally(2023, 40))).toBe(40);
+  });
+
+  // Typing mistakes are pointed out, not guessed at, and the limits match the server's.
+  test.each([['2023', '40', { year: 2023, count: 40 }], [' 2026 ', '1', { year: 2026, count: 1 }]])('%s / %s is accepted', (year, count, out) => {
+    expect(parseTally(year, count, 2026)).toEqual(out);
+  });
+  test.each([['2027', '4'], ['1899', '4'], ['23', '4'], ['2023', '0'], ['2023', '10001'], ['2023', '40ish'], ['2023', '2.5'], ['', '']])('%s / %s is refused', (year, count) => {
+    expect(parseTally(year, count, 2026).error).toBeTruthy();
+  });
+
+  test('year counts are listed newest first, without deleted ones', () => {
+    const rows = [tally(2021, 5), book(), tally(2024, 9), tally(2022, 3, { deleted: true })];
+    expect(yearCounts(rows).map((row) => row.tallyCount)).toEqual([9, 5]);
+  });
+
+  // Year counts add to totals and the per-year chart, but have no authors or ratings to rank, and aren't books.
+  test('stats add year counts to the totals and the chart only', () => {
+    const rows = [book({ readDate: '2026-03-01', rating: 4, authors: ['Jo'] }), tally(2024, 40), tally(2026, 5)];
+    const stats = computeStats(rows, 2026);
+    expect(stats).toMatchObject({ total: 1, finished: 46, counted: 45, thisYear: 6, averageRating: 4 });
+    expect(stats.byYear).toEqual([{ label: '2026', count: 6 }, { label: '2025', count: 0 }, { label: '2024', count: 40 }]);
+    expect(stats.topAuthors).toEqual([{ label: 'Jo', count: 1 }]);
+  });
+
+  test('years read include year counts', () => {
+    expect(readYears([book({ readDate: '2025-05-05' }), tally(2019, 3), book({ status: 'want', readDate: null })])).toEqual([2025, 2019]);
+  });
+});
+
+describe('time periods', () => {
+  const { computeStats, filterBooks, inPeriod, periodLabel, periodProblem, tallyId, tallyInPeriod } = require('../lib/bookLogic');
+  const tally = (year, count) => ({ id: tallyId(year), kind: 'tally', tallyCount: count, status: 'finished', readDate: `${year}-01-01` });
+
+  test('a year keeps only dates in that year', () => {
+    expect(inPeriod('2025-12-31', { year: 2025 })).toBe(true);
+    expect(inPeriod('2026-01-01', { year: 2025 })).toBe(false);
+  });
+
+  // Both ends are included, and either end can be left open.
+  test('a range includes both ends and can be open-ended', () => {
+    const range = { from: '2025-03-01', to: '2025-06-30' };
+    expect(['2025-02-28', '2025-03-01', '2025-06-30', '2025-07-01'].map((d) => inPeriod(d, range))).toEqual([false, true, true, false]);
+    expect(inPeriod('2030-01-01', { from: '2025-03-01', to: null })).toBe(true);
+    expect(inPeriod('1990-01-01', { from: null, to: '2025-06-30' })).toBe(true);
+  });
+
+  // A book not finished yet has no date to place it by.
+  test('with a period, a book with no read date is left out', () => {
+    expect(inPeriod(null, { year: 2025 })).toBe(false);
+    expect(inPeriod(null, null)).toBe(true);
+  });
+
+  test('the library filter uses the read date', () => {
+    const shelf = [book({ title: 'Old', readDate: '2024-05-01' }), book({ title: 'New', readDate: '2025-05-01' }), book({ title: 'Later', status: 'want', readDate: null })];
+    expect(filterBooks(shelf, { period: { year: 2025 } }).map((b) => b.title)).toEqual(['New']);
+    expect(filterBooks(shelf, { period: { from: '2024-01-01', to: '2024-12-31' } }).map((b) => b.title)).toEqual(['Old']);
+    expect(filterBooks(shelf, {}).map((b) => b.title)).toEqual(['Old', 'New', 'Later']);
+  });
+
+  // A year count has no dates inside its year, so a range only includes it when it covers the whole year. Otherwise
+  // a June-only range would gain a whole year's books.
+  test('a year count is in a range only if the range covers its whole year', () => {
+    expect(tallyInPeriod(tally(2024, 40), { from: '2024-01-01', to: '2024-12-31' })).toBe(true);
+    expect(tallyInPeriod(tally(2024, 40), { from: '2024-06-01', to: '2024-12-31' })).toBe(false);
+    expect(tallyInPeriod(tally(2024, 40), { from: null, to: '2025-01-15' })).toBe(true);
+    expect(tallyInPeriod(tally(2024, 40), { year: 2024 })).toBe(true);
+    expect(tallyInPeriod(tally(2024, 40), { year: 2025 })).toBe(false);
+  });
+
+  test('stats for a period count only what was read in it', () => {
+    const rows = [
+      book({ readDate: '2025-03-01', rating: 5, authors: ['Jo'] }),
+      book({ readDate: '2024-03-01', rating: 1, authors: ['Sam'] }),
+      book({ status: 'reading' }),
+      tally(2025, 10),
+    ];
+    const stats = computeStats(rows, 2026, { year: 2025 });
+    expect(stats).toMatchObject({ finished: 11, counted: 10, averageRating: 5 });
+    expect(stats.topAuthors).toEqual([{ label: 'Jo', count: 1 }]);
+    expect(computeStats(rows, 2026, { from: '2025-02-01', to: '2025-04-01' })).toMatchObject({ finished: 1, counted: 0 });
+  });
+
+  test('periods are described and a backwards range is pointed out', () => {
+    expect(periodLabel(null)).toBe('All time');
+    expect(periodLabel({ year: 2025 })).toBe('2025');
+    expect(periodLabel({ from: '2025-03-01', to: null })).toMatch(/^Since /);
+    expect(periodProblem({ from: '2025-06-01', to: '2025-01-01' })).toMatch(/after/);
+    expect(periodProblem({ from: '2025-01-01', to: '2025-06-01' })).toBeNull();
+  });
+});

@@ -1,6 +1,7 @@
 // screens/LibraryScreen.js
 // The home screen: every book, most recently read first, with a status filter and an
-// optional filter by author, category or rating. Pulling down syncs with the server.
+// optional filter by read date (a year or a custom range), series, author, category or rating. Pulling down syncs
+// with the server.
 
 import React, { useMemo, useState } from 'react';
 import { FlatList, Modal, Platform, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
@@ -9,10 +10,14 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import Screen from '../components/Screen';
 import BookRow from '../components/BookRow';
+import PeriodPicker from '../components/PeriodPicker';
 import { Button, Chip, Message, SectionTitle, Stars } from '../components/ui';
 import { useBooks } from '../contexts/BooksContext';
 import { useTheme } from '../contexts/ThemeContext';
-import { distinctNames, filterBooks } from '../lib/bookLogic';
+import { distinctNames, distinctSeries, filterBooks, readYears } from '../lib/bookLogic';
+
+// Every filter in the sheet, cleared. period is null for all time (see inPeriod in lib/bookLogic.js).
+const NO_FILTERS = { author: null, category: null, rating: null, series: null, period: null };
 
 const STATUS_FILTERS = [
   { id: null, label: 'All' },
@@ -27,11 +32,11 @@ export default function LibraryScreen() {
   const { colors } = useTheme();
   const { books, ready, sync, syncNow, pendingCount } = useBooks();
   const [status, setStatus] = useState(null);
-  const [filters, setFilters] = useState({ author: null, category: null, rating: null });
+  const [filters, setFilters] = useState(NO_FILTERS);
   const [filterOpen, setFilterOpen] = useState(false);
 
   const shown = useMemo(() => filterBooks(books, { status, ...filters }), [books, status, filters]);
-  const activeFilters = [filters.author, filters.category, filters.rating !== null ? 'rating' : null].filter(Boolean).length;
+  const activeFilters = [filters.author, filters.category, filters.series, filters.period, filters.rating !== null ? 'rating' : null].filter(Boolean).length;
 
   // A problem shows above the list, because adding a book mustn't hide it. A browser that couldn't download the library
   // has nothing to show yet, so "offline" counts as a problem there. On a phone it's normal, and its books are all there.
@@ -76,7 +81,7 @@ export default function LibraryScreen() {
           <EmptyState
             hasBooks={books.length > 0}
             onAdd={() => navigation.navigate('Book')}
-            onClear={() => { setStatus(null); setFilters({ author: null, category: null, rating: null }); }}
+            onClear={() => { setStatus(null); setFilters(NO_FILTERS); }}
           />
         ) : null}
       />
@@ -104,7 +109,7 @@ function EmptyState({ hasBooks, onAdd, onClear }) {
 }
 
 /**
- * The sheet that slides up to filter by author, category and rating.
+ * The sheet that slides up to filter by read date, rating, series, category and author.
  * In: visible, books (the choices come from what's in the library), filters, onChange, onClose.
  */
 function FilterSheet({ visible, books, filters, onChange, onClose }) {
@@ -112,13 +117,20 @@ function FilterSheet({ visible, books, filters, onChange, onClose }) {
   const insets = useSafeAreaInsets();
   const authors = useMemo(() => distinctNames(books, 'authors'), [books]);
   const categories = useMemo(() => distinctNames(books, 'categories'), [books]);
+  const series = useMemo(() => distinctSeries(books), [books]);
+  const years = useMemo(() => readYears(books), [books]);
+  // Changing this redraws the date choices from scratch, so Clear also leaves "Custom range".
+  const [resetKey, setResetKey] = useState(0);
   const toggle = (field, value) => onChange({ ...filters, [field]: filters[field] === value ? null : value });
 
   return (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
       <Pressable style={styles.sheetBackdrop} onPress={onClose} accessibilityLabel="Close filters" />
       <View style={[styles.sheet, { backgroundColor: colors.surface, borderColor: colors.border, paddingBottom: insets.bottom + 14 }]}>
-        <ScrollView>
+        <ScrollView keyboardShouldPersistTaps="handled">
+          {/* Limits the list to books read in that time, so books with no read date yet drop out while it's set. */}
+          <SectionTitle>Read date</SectionTitle>
+          <PeriodPicker key={resetKey} years={years} value={filters.period} onChange={(period) => onChange({ ...filters, period })} />
           <SectionTitle>Rating</SectionTitle>
           <View style={styles.wrapChips}>
             {[5, 4, 3, 2, 1].map((n) => (
@@ -135,6 +147,10 @@ function FilterSheet({ visible, books, filters, onChange, onClose }) {
             ))}
             <Chip label="Not rated" selected={filters.rating === 0} onPress={() => toggle('rating', 0)} />
           </View>
+          {series.length ? <SectionTitle>Series</SectionTitle> : null}
+          <View style={styles.wrapChips}>
+            {series.map((name) => <Chip key={name} label={name} selected={filters.series === name} onPress={() => toggle('series', name)} />)}
+          </View>
           {categories.length ? <SectionTitle>Category</SectionTitle> : null}
           <View style={styles.wrapChips}>
             {categories.map((name) => <Chip key={name} label={name} selected={filters.category === name} onPress={() => toggle('category', name)} />)}
@@ -145,7 +161,7 @@ function FilterSheet({ visible, books, filters, onChange, onClose }) {
           </View>
         </ScrollView>
         <View style={styles.sheetButtons}>
-          <Button label="Clear" kind="secondary" style={styles.sheetButton} onPress={() => onChange({ author: null, category: null, rating: null })} />
+          <Button label="Clear" kind="secondary" style={styles.sheetButton} onPress={() => { onChange(NO_FILTERS); setResetKey((key) => key + 1); }} />
           <Button label="Done" style={styles.sheetButton} onPress={onClose} />
         </View>
       </View>
