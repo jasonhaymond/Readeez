@@ -6,6 +6,30 @@ All notable changes to Readeez are recorded here. The format follows
 
 [Back to the README](README.md)
 
+## [1.2.1] - 2026-11-20
+
+### Changed
+
+- Dependency updates (patch, no behavior change intended): expo 58.0.26, expo-file-system
+  58.0.14, @react-navigation/native 7.5.2, @react-navigation/native-stack 7.21.1,
+  vitest 5.1.1; server: express-rate-limit 8.7.5, vitest 5.1.1.
+
+### Fixed
+
+- **Android APK file names always say which processor they run on**, e.g.
+  `Readeez-v1.2.1-arm64-v8a-release.apk` (phones) and `…-x86_64-release.apk`
+  (emulator), so the emulator build can't be installed on a phone by mistake ("not
+  compatible"). Build server 2.10.0 names them this way on its dashboard too;
+  `npm run build:android` keeps its name rather than adding the processor twice.
+- `npm run build:android` says why the build server couldn't be reached (e.g.
+  `ENOTFOUND`, `ECONNREFUSED`, a certificate error) instead of only "fetch failed".
+
+### Security
+
+- `npm run build:android` only saves a download under a plain file name: a name sent
+  by the build server such as `../../x` could otherwise have written outside
+  `dist-android/`.
+
 ## [1.2.0] - 2026-11-14
 
 ### Added

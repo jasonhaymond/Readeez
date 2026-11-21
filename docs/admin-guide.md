@@ -402,7 +402,8 @@ npm run build:android -- --ref v1.1.0
 
 A release build must be an approved version tag: anything else is refused. Use `--debug` for a test build.
 
-Success: it ends with `✔ dist-android/...apk`. The build is also on the build server's dashboard.
+Success: it ends with `✔ dist-android/...apk`, e.g. `Readeez-v1.2.1-arm64-v8a-release.apk`. The name says which
+processor it runs on: phones need `arm64-v8a`; an `x86_64` file is for the emulator, and a phone refuses it as "not compatible". The build is also on the build server's dashboard.
 
 **Before giving a build to the family**, install it on a test device or emulator and check that it
 opens and signs in. Release builds shrink code in ways that development builds don't, and that can

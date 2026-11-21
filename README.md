@@ -6,7 +6,7 @@ A simple book tracker for a family. Log what you've read with its authors, categ
 rating, read date and your notes. It's an Android app that works offline, and a web app, both syncing to your own
 server, with backups and exports to Nextcloud.
 
-**Current version: 1.2.0** · [Changelog](CHANGELOG.md)
+**Current version: 1.2.1** · [Changelog](CHANGELOG.md)
 
 ## Documentation
 
@@ -79,7 +79,7 @@ You need Node 24 and Docker.
    DATABASE_URL=postgres://readeez:dev@127.0.0.1:15436/readeez SECRETS_KEY=dev PORT=3020 node index.js
    ```
 
-   Expected: `Readeez server v1.2.0 listening on port 3020`.
+   Expected: `Readeez server v1.2.1 listening on port 3020`.
 
 3. In another terminal, make your first account's invite code:
 
